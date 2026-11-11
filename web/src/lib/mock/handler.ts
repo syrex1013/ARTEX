@@ -2405,6 +2405,48 @@ function route(m: string, path: string, seg: string[], q: URLSearchParams, b: Re
   if (path === "/sync/scopesentry/sync") return { synced: {}, companies: null, warnings: null, errors: null };
 
   // ── skills ──
+  if (path.startsWith("/skill-market/")) {
+    const sources = [{ id: "anthropics-skills", repo: "anthropics/skills", label: "Anthropic (official)", builtin: true }];
+    const mk = (name: string, description: string, extra: Record<string, unknown> = {}) => ({
+      source: "anthropics-skills",
+      repo: "anthropics/skills",
+      path: `skills/${name}`,
+      name,
+      description,
+      commit: "0123456789abcdef0123456789abcdef01234567",
+      version: `v-${name}`,
+      files: 6,
+      bytes: 48_000,
+      has_scripts: name !== "brand-guidelines",
+      installed: D.skills.some((s) => s.name === name),
+      update_available: false,
+      requested: 0,
+      ...extra,
+    });
+    if (path === "/skill-market/sources" && m === "GET") return { sources };
+    if (path === "/skill-market/sources" && m === "POST") return { source: { id: "x", repo: String(b.repo) }, skills: 3 };
+    if (path.startsWith("/skill-market/sources/") && m === "DELETE") return { deleted: seg[2] };
+    if (path === "/skill-market/skills") {
+      const query = (q.get("q") ?? "").toLowerCase();
+      const all = [
+        mk("pdf", "Read, merge, split and fill PDF files, extract text and tables.", { requested: 3 }),
+        mk("docx", "Create and edit Word documents with tracked changes."),
+        mk("xlsx", "Spreadsheet creation, formulas and charts."),
+        mk("brand-guidelines", "Apply a consistent brand style to generated artifacts."),
+      ].filter((i) => !query || `${i.name} ${i.description}`.toLowerCase().includes(query));
+      return { skills: all, errors: [] };
+    }
+    if (path === "/skill-market/preview")
+      return {
+        skill: mk(String(q.get("path") ?? "").split("/").pop() ?? "pdf", "Mock skill"),
+        skill_md: "---\nname: pdf\ndescription: Mock skill\n---\n# PDF\nUse scripts/run.py to process files.\n",
+        files: [
+          { path: "SKILL.md", size: 1200 },
+          { path: "scripts/run.py", size: 3400 },
+        ],
+      };
+    if (path === "/skill-market/install") return { name: String(String(b.path).split("/").pop()), files: 6, commit: "0123456" };
+  }
   if (path === "/skills" && m === "GET") return { skills: D.skills };
   if (path === "/skills/missing") return { missing: D.missingSkills };
   if (seg[0] === "skills" && seg[2] === "usage") return { calls: D.skillCalls };

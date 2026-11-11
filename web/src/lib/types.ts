@@ -1645,3 +1645,41 @@ export interface ConfigImportResult {
   dry_run: boolean;
   sections: Partial<Record<ConfigSection, ConfigImportSection>>;
 }
+
+// ---- Skill marketplace ----
+export interface MarketSource {
+  id: string;
+  repo: string; // owner/name on github.com
+  ref?: string;
+  label?: string;
+  builtin?: boolean;
+}
+
+export interface MarketSkill {
+  source: string;
+  repo: string;
+  path: string;
+  name: string;
+  description: string;
+  license?: string;
+  commit: string;
+  version: string;
+  files: number;
+  bytes: number;
+  has_scripts: boolean;
+  installed: boolean;
+  installed_from?: string;
+  update_available: boolean;
+  requested: number; // times agents asked for this skill and found none
+}
+
+export interface MarketSearchResult {
+  skills: MarketSkill[];
+  errors: { source: string; error: string }[];
+}
+
+export interface MarketPreview {
+  skill: MarketSkill;
+  skill_md: string;
+  files: { path: string; size: number }[];
+}

@@ -45,6 +45,7 @@ type Server struct {
 	ctx    context.Context
 
 	skillDir string // root directory for skill subdirectories
+	market   *skillMarket // skill marketplace catalogue cache
 	jwtKey   []byte // HS256 signing key loaded from / generated into keyDir/jwt.key
 
 	scrubSecrets bool // drop ARTEX_PG_DSN and the API keys from the environment once read (binary only)
@@ -157,7 +158,7 @@ func New(ctx context.Context, m *Manager, skillDir string, dataDir string, keyDi
 	if err != nil {
 		log.Fatalf("[auth] JWT key: %v", err)
 	}
-	s := &Server{m: m, engine: NewEngine(m), ctx: ctx, skillDir: skillDir, jwtKey: key, chatBusy: map[string]bool{},
+	s := &Server{m: m, engine: NewEngine(m), ctx: ctx, skillDir: skillDir, market: &skillMarket{}, jwtKey: key, chatBusy: map[string]bool{},
 		chatCancel: map[string]context.CancelCauseFunc{}, triggerQ: map[string][]triggeredRun{},
 		triggerActive: map[string]int{}, triggerCfg: map[string]triggerBehavior{},
 		profChatAgents: map[int64]*agent.ChatAgent{},
@@ -913,6 +914,12 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/sync/scopesentry/tasks", s.syncSSTasks)
 	mux.HandleFunc("POST /api/sync/scopesentry/sync", s.syncSSRun)
 	// Skill CRUD (filesystem)
+	mux.HandleFunc("GET /api/skill-market/sources", s.marketListSources)
+	mux.HandleFunc("POST /api/skill-market/sources", s.marketAddSource)
+	mux.HandleFunc("DELETE /api/skill-market/sources/{id}", s.marketDeleteSource)
+	mux.HandleFunc("GET /api/skill-market/skills", s.marketSearch)
+	mux.HandleFunc("GET /api/skill-market/preview", s.marketPreview)
+	mux.HandleFunc("POST /api/skill-market/install", s.marketInstall) // uninstall = DELETE /api/skills/{name}
 	mux.HandleFunc("GET /api/skills", s.fsListSkills)
 	mux.HandleFunc("POST /api/skills", s.fsCreateSkill)
 	mux.HandleFunc("POST /api/skills/upload", s.fsUploadSkill)

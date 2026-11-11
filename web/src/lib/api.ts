@@ -77,6 +77,9 @@ import type {
   ConfigBundle,
   ConfigImportResult,
   ConfigSection,
+  MarketPreview,
+  MarketSearchResult,
+  MarketSource,
   Settings,
   Severity,
   SkillCall,
@@ -1183,6 +1186,22 @@ export const api = {
     if (!r.ok) throw new Error(body?.error || `Upload failed (${r.status})`);
     return body;
   },
+  // ---- skill marketplace (public GitHub skill repositories) ----
+  marketSources: () => get<{ sources: MarketSource[] }>("/skill-market/sources").then((r) => arr(r.sources)),
+  marketAddSource: (repo: string, ref?: string) =>
+    post<{ source: MarketSource; skills: number }>("/skill-market/sources", { repo, ref: ref || undefined }),
+  marketRemoveSource: (id: string) => del<{ deleted: string }>(`/skill-market/sources/${encodeURIComponent(id)}`),
+  marketSearch: (q: string, source?: string, refresh = false) => {
+    const p = new URLSearchParams();
+    if (q) p.set("q", q);
+    if (source) p.set("source", source);
+    if (refresh) p.set("refresh", "true");
+    return get<MarketSearchResult>(`/skill-market/skills?${p.toString()}`);
+  },
+  marketPreview: (source: string, path: string) =>
+    get<MarketPreview>(`/skill-market/preview?source=${encodeURIComponent(source)}&path=${encodeURIComponent(path)}`),
+  marketInstall: (source: string, path: string, overwrite = false) =>
+    post<{ name: string; files: number; commit: string }>("/skill-market/install", { source, path, overwrite }),
   deleteSkill: (name: string) => del<{ deleted: string }>(`/skills/${name}`),
   updateSkillMeta: (
     name: string,

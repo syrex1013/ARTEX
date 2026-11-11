@@ -6,6 +6,14 @@ All notable changes to this project are documented in this file. The format is b
 
 ### Added
 
+- **Nine new themes**: Dracula, Nord, Catppuccin, Tokyo Night, One Dark, Gruvbox, Solarized, Monokai and Rosé Pine, each with a light and a dark variant, selectable under the header's preferences popover. The boot script now ignores a stored preset that no longer exists, toasts follow the in-app theme instead of the OS theme, and the task coverage graph canvas takes its colors from the active theme.
+- **Configuration export / import**: `GET /api/config/export` and `POST /api/config/import` (with `dry_run=true`) move settings, LLM profiles and retry policy, MCP servers and notification channels between instances as one JSON bundle. **The export contains API keys and other credentials in plaintext**; the Settings page shows a warning before downloading. Import is merge-only (same-name items are overwritten, nothing is deleted), goes through the existing validators, and never reads or writes the admin password hash or JWT key. The browser's theme and layout preferences ride along in the file.
+- **Skill marketplace**: a Marketplace panel on the Skill page browses public GitHub skill repositories (default `anthropics/skills`; add any `owner/repo`), previews `SKILL.md` and the file list, and installs, updates or uninstalls with one click. Installs are pinned to a commit and run through the same extraction checks as a manual zip upload; a `.artex-origin.json` file records where a skill came from so updates can be detected. Installed skills stay hidden from agents until enabled per agent, and nothing installs or updates automatically. Set `GITHUB_TOKEN` to raise GitHub's rate limit.
+
+### Changed
+
+- Skill installation (upload and marketplace) now swaps the new skill in via a backup of the old one, so a failed install restores the previous skill instead of leaving none. The skill list ignores dot-directories used as scratch space.
+
 - **Optional custom User-Agent for LLM requests**: an LLM profile can set a `User-Agent` value that overrides the header on every outbound LLM request; left empty, the default User-Agent is unchanged. The value is trimmed and rejected if it contains control characters or exceeds 256 bytes. Part of #154 (the fixed-full-URL mode is not included).
 
 ### Docs

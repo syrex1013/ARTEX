@@ -12,6 +12,7 @@ import {
   PlusIcon,
   Trash2Icon,
   UploadIcon,
+  StoreIcon,
   AlertTriangleIcon,
 } from "lucide-react";
 
@@ -42,6 +43,7 @@ import {
 } from "@/components/ui/sheet";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
+import { MarketplaceSheet } from "./_components/marketplace-sheet";
 import { api } from "@/lib/api";
 import type { Agent, SkillItem, MCPServer, SkillCall, MissingSkill } from "@/lib/types";
 
@@ -295,6 +297,7 @@ function SkillsOverview({
 // ── Page ──────────────────────────────────────────────────────────────────
 export default function SkillsPage() {
   const [skills, setSkills] = React.useState<SkillItem[]>([]);
+  const [marketOpen, setMarketOpen] = React.useState(false);
   const [agents, setAgents] = React.useState<Agent[]>([]);
   const [selected, setSelected] = React.useState<Selected | null>(null);
   const [visibility, setVisibility] = React.useState<Record<string, string[]>>({});
@@ -737,6 +740,9 @@ export default function SkillsPage() {
         {/* ── left file tree ── */}
         <div className="flex w-64 shrink-0 flex-col border-r">
           <div className="flex flex-col gap-2 border-b p-2">
+            <Button size="sm" className="w-full" onClick={() => setMarketOpen(true)} title="Browse and install skills from public repositories">
+              <StoreIcon className="size-3.5" />Marketplace
+            </Button>
             <Button size="sm" variant="outline" className="w-full" onClick={() => setNewOpen(true)}>
               <PlusIcon className="size-3.5" />Create skill
             </Button>
@@ -1122,6 +1128,8 @@ export default function SkillsPage() {
           </SheetFooter>
         </SheetContent>
       </Sheet>
+
+      <MarketplaceSheet open={marketOpen} onOpenChange={setMarketOpen} onChanged={load} />
     </div>
   );
 }

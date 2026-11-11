@@ -1002,8 +1002,8 @@ func (s *Server) fsListSkills(w http.ResponseWriter, r *http.Request) {
 	}
 	nodes := []skillFileNode{}
 	for _, e := range entries {
-		if !e.IsDir() {
-			continue
+		if !e.IsDir() || strings.HasPrefix(e.Name(), ".") {
+			continue // dot-directories are installer scratch space (.upload-*, .bak-*)
 		}
 		dirName := e.Name()
 		node := skillFileNode{Name: dirName, Agents: []string{}}
@@ -1366,16 +1366,52 @@ func (s *Server) fsUploadSkill(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, err.Error())
 		return
 	}
+	name, files, ierr := s.installSkillFromZip(buf, skillInstallOpts{
+		Overwrite: r.URL.Query().Get("overwrite") == "true",
+		NameHint:  filepath.ToSlash(hdr.Filename),
+	})
+	if ierr != nil {
+		writeErr(w, ierr.Status, ierr.Msg)
+		return
+	}
+	writeJSON(w, 201, map[string]any{"name": name, "files": files})
+}
+
+// skillInstallOpts tunes installSkillFromZip.
+type skillInstallOpts struct {
+	Overwrite bool
+	// NameHint is the last-resort skill name (the uploaded file name) when SKILL.md has no name and the
+	// skill root is the archive root.
+	NameHint string
+	// RequireName, when set, makes the install fail unless the resolved skill name equals it.
+	RequireName string
+	// Origin, when non-nil, is written to <skill>/.artex-origin.json (provenance of a marketplace install).
+	Origin []byte
+}
+
+// skillOriginFile records where a marketplace-installed skill came from.
+const skillOriginFile = ".artex-origin.json"
+
+type skillInstallError struct {
+	Status int
+	Msg    string
+}
+
+func installErr(status int, msg string) *skillInstallError { return &skillInstallError{status, msg} }
+
+// installSkillFromZip validates a skill archive and installs it under skillDir. It is the single extraction path
+// for manual uploads and marketplace installs: zip-slip is defeated by validating every entry with skillRelPath,
+// size/count caps guard against zip bombs, and the skill is extracted into a temporary directory first, then
+// swapped in, so a bad entry never leaves a half-written skill behind.
+func (s *Server) installSkillFromZip(buf []byte, o skillInstallOpts) (string, int, *skillInstallError) {
 	zr, err := newSkillZipReader(buf)
 	if err != nil {
-		writeErr(w, 400, err.Error())
-		return
+		return "", 0, installErr(400, err.Error())
 	}
 	// entries carry UTF-8-decoded names (GBK archives can be read too) and exclude archiver junk.
 	entriesAll := skillZipEntries(zr)
 	if err := checkSkillZipMethods(entriesAll); err != nil {
-		writeErr(w, 400, err.Error())
-		return
+		return "", 0, installErr(400, err.Error())
 	}
 
 	// locate the shallowest SKILL.md → its directory is the skill root inside the zip.
@@ -1390,8 +1426,7 @@ func (s *Server) fsUploadSkill(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if skillMD == nil {
-		writeErr(w, 400, "SKILL.md not found in the archive")
-		return
+		return "", 0, installErr(400, "SKILL.md not found in the archive")
 	}
 	root := path.Dir(skillMD.name) // "." when SKILL.md is at the zip root
 	prefix := ""
@@ -1402,37 +1437,36 @@ func (s *Server) fsUploadSkill(w http.ResponseWriter, r *http.Request) {
 	// derive + validate the skill name from the SKILL.md frontmatter.
 	md, err := readZipEntry(skillMD.f)
 	if err != nil {
-		writeErr(w, 400, "failed to read SKILL.md: "+err.Error())
-		return
+		return "", 0, installErr(400, "failed to read SKILL.md: "+err.Error())
 	}
 	name := skillNameFromFrontmatter(md)
 	if name == "" && prefix != "" {
 		name = path.Base(strings.TrimSuffix(prefix, "/"))
 	}
 	if name == "" {
-		base := path.Base(filepath.ToSlash(hdr.Filename))
+		base := path.Base(o.NameHint)
 		name = strings.TrimSuffix(base, path.Ext(base))
 	}
 	if !validSkillName(name) {
-		writeErr(w, 400, "invalid skill name (taken from the name field of SKILL.md): "+name+
+		return "", 0, installErr(400, "invalid skill name (taken from the name field of SKILL.md): "+name+
 			"(max 64 chars, starts with a letter, only lowercase letters/digits/hyphens or non-ASCII letters such as Chinese, no spaces, dots, or path separators)")
-		return
+	}
+	if o.RequireName != "" && name != o.RequireName {
+		return "", 0, installErr(400, "the skill's SKILL.md declares the name "+name+", expected "+o.RequireName)
 	}
 
 	skillPath := filepath.Join(s.skillDir, name)
-	overwrite := r.URL.Query().Get("overwrite") == "true"
-	if _, err := os.Stat(skillPath); err == nil && !overwrite {
-		writeErr(w, 409, "skill already exists: "+name+" (retry after confirming if you want to overwrite)")
-		return
+	if _, err := os.Stat(skillPath); err == nil && !o.Overwrite {
+		return "", 0, installErr(409, "skill already exists: "+name+" (retry after confirming if you want to overwrite)")
 	}
 
-	// extract into a temp dir first, then atomically swap in — a bad entry aborts
-	// the whole upload without leaving a half-written skill.
+	// extract into a temp dir first, then swap in — a bad entry aborts the whole install.
+	// The temp dir is dot-prefixed: agent visibility matches skills by directory name, so it can never be exposed
+	// to an agent, and the skill list ignores dot-directories.
 	_ = os.MkdirAll(s.skillDir, 0o755)
 	tmp, err := os.MkdirTemp(s.skillDir, ".upload-*")
 	if err != nil {
-		writeErr(w, 500, err.Error())
-		return
+		return "", 0, installErr(500, err.Error())
 	}
 	defer os.RemoveAll(tmp) // no-op after a successful rename
 
@@ -1450,59 +1484,69 @@ func (s *Server) fsUploadSkill(w http.ResponseWriter, r *http.Request) {
 		}
 		clean, msg := skillRelPath(rel)
 		if msg != "" {
-			writeErr(w, 400, "archive contains an illegal path "+e.name+": "+msg)
-			return
+			return "", 0, installErr(400, "archive contains an illegal path "+e.name+": "+msg)
+		}
+		if clean == skillOriginFile {
+			continue // reserved for the installer's own provenance record
 		}
 		if entries++; entries > maxSkillEntries {
-			writeErr(w, 400, "too many files in the archive")
-			return
+			return "", 0, installErr(400, "too many files in the archive")
 		}
 		if f.UncompressedSize64 > maxSkillFileBytes {
-			writeErr(w, 400, "file too large: "+rel)
-			return
+			return "", 0, installErr(400, "file too large: "+rel)
 		}
 		dst := filepath.Join(tmp, clean)
 		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-			writeErr(w, 500, err.Error())
-			return
+			return "", 0, installErr(500, err.Error())
 		}
 		rc, err := f.Open()
 		if err != nil {
-			writeErr(w, 500, err.Error())
-			return
+			return "", 0, installErr(500, err.Error())
 		}
 		out, err := os.Create(dst)
 		if err != nil {
 			rc.Close()
-			writeErr(w, 500, err.Error())
-			return
+			return "", 0, installErr(500, err.Error())
 		}
 		n, err := io.Copy(out, io.LimitReader(rc, maxSkillFileBytes+1))
 		out.Close()
 		rc.Close()
 		if err != nil {
-			writeErr(w, 500, err.Error())
-			return
+			return "", 0, installErr(500, err.Error())
 		}
 		total += n
 		if total > maxSkillTotalBytes {
-			writeErr(w, 400, "archive too large after extraction")
-			return
+			return "", 0, installErr(400, "archive too large after extraction")
 		}
 	}
 	if _, err := os.Stat(filepath.Join(tmp, "SKILL.md")); err != nil {
-		writeErr(w, 400, "SKILL.md missing after extraction")
-		return
+		return "", 0, installErr(400, "SKILL.md missing after extraction")
+	}
+	if o.Origin != nil {
+		if err := os.WriteFile(filepath.Join(tmp, skillOriginFile), o.Origin, 0o644); err != nil {
+			return "", 0, installErr(500, err.Error())
+		}
 	}
 
-	if overwrite {
-		_ = os.RemoveAll(skillPath)
+	// Swap. An existing skill is moved aside first and only deleted once the new one is in place, so a failed
+	// rename restores the old skill instead of leaving none.
+	backup := ""
+	if _, err := os.Stat(skillPath); err == nil {
+		backup = filepath.Join(s.skillDir, ".bak-"+name+"-"+filepath.Base(tmp))
+		if err := os.Rename(skillPath, backup); err != nil {
+			return "", 0, installErr(500, "installation failed: "+err.Error())
+		}
 	}
 	if err := os.Rename(tmp, skillPath); err != nil {
-		writeErr(w, 500, "installation failed: "+err.Error())
-		return
+		if backup != "" {
+			_ = os.Rename(backup, skillPath)
+		}
+		return "", 0, installErr(500, "installation failed: "+err.Error())
 	}
-	writeJSON(w, 201, map[string]any{"name": name, "files": entries})
+	if backup != "" {
+		_ = os.RemoveAll(backup)
+	}
+	return name, entries, nil
 }
 
 // readZipEntry reads a single entry's bytes (capped). Takes the *zip.File rather than
