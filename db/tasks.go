@@ -55,6 +55,8 @@ type Task struct {
 	// TargetGate is the per-task opt-in of the approval gate for asset targets.
 	// false (default) = no gate, behaviour unchanged.
 	TargetGate bool `json:"target_gate"`
+	// EngagementID is the engagement the task belongs to (0 = none).
+	EngagementID int64 `json:"engagement_id,omitempty"`
 	// CoverageEnabled is the master switch of the "asset coverage" feature (default true). When false:
 	// do not compute/show test coverage, do not auto-accumulate task_scope (source=auto), do not open
 	// add_task_scope/list_untested_assets to the agent, and do not inject the coverage block into the
@@ -178,6 +180,8 @@ type TaskCreateOptions struct {
 	LLMRotate *bool
 	// TargetGate opts the task into the approval gate for asset targets; nil = off.
 	TargetGate *bool
+	// EngagementID attaches the task to an engagement at creation; nil = none.
+	EngagementID *int64
 }
 
 // CreateTaskWithOptions creates an exploration, task, direct source relations,
@@ -262,6 +266,12 @@ INSERT INTO tasks(name, category_id, description, goal, exploration_id, llm_prof
 VALUES ($1,$2,$3,$4,$5,$6,$6,$7,$8,$9,$10,$11,$12)
 RETURNING id, status, paused, created_at`, opts.Name, opts.CategoryID, description, goal, expID, active, opts.TimeoutSeconds, opts.PlanHeartbeatSeconds, quietMode, coverageEnabled, rotate, t.TargetGate).Scan(&t.ID, &t.Status, &t.Paused, &t.CreatedAt); err != nil {
 		return nil, err
+	}
+	if opts.EngagementID != nil {
+		if _, err := tx.Exec(`UPDATE tasks SET engagement_id=$2 WHERE id=$1`, t.ID, *opts.EngagementID); err != nil {
+			return nil, fmt.Errorf("attach the task to the engagement: %w", err)
+		}
+		t.EngagementID = *opts.EngagementID
 	}
 	if err := insertTaskRelations(tx, t.ID, opts.SourceTaskIDs); err != nil {
 		return nil, err
@@ -376,11 +386,11 @@ func insertTaskLLMProfiles(tx *sql.Tx, taskID int64, profileIDs []int64) error {
 
 const taskCols = `id, COALESCE(name,''), category_id,
 COALESCE((SELECT category.name FROM task_categories category WHERE category.id=tasks.category_id),''),
-description, goal, exploration_id, status, paused, queued, queued_at, COALESCE(queue_mode,''), llm_profile_id, active_llm_profile_id, COALESCE(parent_ref,''), pinned_at, created_at, completed_at, COALESCE(timeout_seconds,0), COALESCE(plan_heartbeat_seconds,300), COALESCE(plan_quiet_mode,true), COALESCE(coverage_enabled,true), COALESCE(llm_rotate,false), first_run_at, deadline_at, target_gate`
+description, goal, exploration_id, status, paused, queued, queued_at, COALESCE(queue_mode,''), llm_profile_id, active_llm_profile_id, COALESCE(parent_ref,''), pinned_at, created_at, completed_at, COALESCE(timeout_seconds,0), COALESCE(plan_heartbeat_seconds,300), COALESCE(plan_quiet_mode,true), COALESCE(coverage_enabled,true), COALESCE(llm_rotate,false), first_run_at, deadline_at, target_gate, COALESCE(engagement_id,0)`
 
 func scanTask(sc interface{ Scan(...any) error }) (*Task, error) {
 	var t Task
-	if err := sc.Scan(&t.ID, &t.Name, &t.CategoryID, &t.CategoryName, &t.Description, &t.Goal, &t.ExplorationID, &t.Status, &t.Paused, &t.Queued, &t.QueuedAt, &t.QueueMode, &t.LLMProfileID, &t.ActiveLLMProfileID, &t.ParentRef, &t.PinnedAt, &t.CreatedAt, &t.CompletedAt, &t.TimeoutSeconds, &t.PlanHeartbeatSeconds, &t.PlanQuietMode, &t.CoverageEnabled, &t.LLMRotate, &t.FirstRunAt, &t.DeadlineAt, &t.TargetGate); err != nil {
+	if err := sc.Scan(&t.ID, &t.Name, &t.CategoryID, &t.CategoryName, &t.Description, &t.Goal, &t.ExplorationID, &t.Status, &t.Paused, &t.Queued, &t.QueuedAt, &t.QueueMode, &t.LLMProfileID, &t.ActiveLLMProfileID, &t.ParentRef, &t.PinnedAt, &t.CreatedAt, &t.CompletedAt, &t.TimeoutSeconds, &t.PlanHeartbeatSeconds, &t.PlanQuietMode, &t.CoverageEnabled, &t.LLMRotate, &t.FirstRunAt, &t.DeadlineAt, &t.TargetGate, &t.EngagementID); err != nil {
 		return nil, err
 	}
 	t.Pinned = t.PinnedAt != nil

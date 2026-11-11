@@ -230,6 +230,9 @@ var targetGuidance = map[string]string{
 		"Do not rewrite the command, switch tools or substitute an IP address. Retry the same call later, or report the failure.",
 	intercept.TargetRuleBlocked: "The call was not executed and no approval was requested. " +
 		"The operator's rules exclude this target: do not reach it another way.",
+	intercept.TargetOutsideWindow: "The call was not executed and no approval was requested. " +
+		"Testing is not allowed right now under this engagement's rules of engagement: do not reach the target another way. " +
+		"Stop active testing and wait; the task is paused automatically and resumes when the window reopens.",
 	intercept.TargetTooMany: "The call was not executed and no approval was requested. Name fewer new targets per call.",
 	intercept.TargetGateUnavailable: "The call was not executed. This is a failure on the platform side, not a block by the target. " +
 		"Retry the same call later, or report the failure.",

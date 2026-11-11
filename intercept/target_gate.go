@@ -21,6 +21,8 @@ const (
 	TargetRuleBlocked = "TARGET_RULE_BLOCKED"
 	// TargetTooMany: the call names more unpinned targets than one call may request.
 	TargetTooMany = "TARGET_TOO_MANY"
+	// TargetOutsideWindow: the task's engagement enforces a testing window and it is closed.
+	TargetOutsideWindow = "OUTSIDE_TESTING_WINDOW"
 )
 
 // maxUnpinnedTargets is how many distinct targets without a covering pin one
@@ -39,6 +41,9 @@ type targetStore interface {
 	// ActivePins returns the active pins that may cover (host, port) in scope,
 	// the pin on the exact port first.
 	ActivePins(scope db.TargetScopeRef, host string, port int) ([]*db.TargetPin, error)
+	// WindowClosed reports whether the scope's task belongs to an engagement that enforces a testing window which
+	// is closed now, with the reason to show. A scope without a task is never closed.
+	WindowClosed(scope db.TargetScopeRef) (closed bool, reason string, err error)
 	// Exemptions returns the stored exemption list and its digest.
 	Exemptions() ([]db.TargetExemption, string, error)
 	// LogDecision records an outcome no human took.
@@ -56,7 +61,25 @@ func (s dbTargetStore) BlockRules(scope db.TargetScopeRef) ([]db.AssetInterceptR
 	if err != nil {
 		return nil, err
 	}
-	return append(rules, block...), nil
+	rules = append(rules, block...)
+	// The engagement's "do not test" entries are enforced like the task's own block rules.
+	if eng, err := s.d.EngagementForTask(scope.TaskID); err != nil {
+		return nil, err
+	} else if eng != nil {
+		excl, err := s.d.EngagementExclusionRules(eng.ID)
+		if err != nil {
+			return nil, err
+		}
+		rules = append(rules, excl...)
+	}
+	return rules, nil
+}
+
+func (s dbTargetStore) WindowClosed(scope db.TargetScopeRef) (bool, string, error) {
+	if scope.TaskID == 0 {
+		return false, "", nil
+	}
+	return s.d.TaskWindowClosed(scope.TaskID, time.Now())
 }
 
 func (s dbTargetStore) ActivePins(scope db.TargetScopeRef, host string, port int) ([]*db.TargetPin, error) {
@@ -140,6 +163,15 @@ func (c *targetCheck) run(targets []Target) ([]TargetRequest, TargetResult) {
 		return nil, TargetResult{Code: TargetGateUnavailable, Host: targets[0].Host, Port: targets[0].Port, Reason: err.Error()}
 	}
 	first := &checkedTarget{Target: targets[0]}
+	// An engagement's testing window comes before everything else: outside it nothing is tested, whatever the
+	// rules, pins or exemptions say.
+	closed, why, err := i.targets.WindowClosed(c.ref)
+	if err != nil {
+		return c.block(TargetGateUnavailable, "gate_unavailable", first, "the testing window could not be read: "+err.Error())
+	}
+	if closed {
+		return c.block(TargetOutsideWindow, "outside_window", first, "this engagement's testing window is closed: "+why)
+	}
 	rules, err := i.targets.BlockRules(c.ref)
 	if err != nil {
 		return c.block(TargetGateUnavailable, "gate_unavailable", first, "the asset rules could not be read: "+err.Error())

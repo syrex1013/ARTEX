@@ -1563,3 +1563,62 @@ CREATE TABLE IF NOT EXISTS rsi_lesson_usage (
     shown_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (lesson_id, task_id, mode)
 );
+
+-- ---------------------------------------------------------------------------
+-- Engagements: a client engagement groups tasks under one scope / rules of engagement,
+-- an optional testing window (enforced by the target gate and the scheduler) and a budget.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS engagements (
+    id               BIGSERIAL PRIMARY KEY,
+    name             TEXT NOT NULL,
+    nkey             TEXT NOT NULL UNIQUE,
+    company_id       BIGINT REFERENCES companies(id) ON DELETE SET NULL,
+    status           TEXT NOT NULL DEFAULT 'scoping' CHECK (status IN ('scoping','testing','reporting','retest','closed')),
+    roe              TEXT NOT NULL DEFAULT '',
+    contacts         JSONB NOT NULL DEFAULT '[]',
+    -- Testing window. window_tz is an IANA zone ("" = UTC). window_start/window_end bound the whole engagement;
+    -- daily_windows restricts it further to recurring slots [{"days":[1..7],"start":"22:00","end":"06:00"}] (1=Mon..7=Sun;
+    -- an end before the start means the slot runs past midnight). No window configured = always open.
+    window_tz        TEXT NOT NULL DEFAULT '',
+    window_start     TIMESTAMPTZ,
+    window_end       TIMESTAMPTZ,
+    daily_windows    JSONB NOT NULL DEFAULT '[]',
+    window_enforce   BOOLEAN NOT NULL DEFAULT false,
+    -- Budget in EUR (same unit as llm_profiles.price_*_per_m); NULL = none.
+    budget_eur       NUMERIC(12,2),
+    budget_alert_pct INTEGER[] NOT NULL DEFAULT '{80,100}',
+    budget_action    TEXT NOT NULL DEFAULT 'alert' CHECK (budget_action IN ('alert','pause')),
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+DROP TRIGGER IF EXISTS trg_engagements_upd ON engagements;
+CREATE TRIGGER trg_engagements_upd BEFORE UPDATE ON engagements
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+CREATE TABLE IF NOT EXISTS engagement_scope (
+    id            BIGSERIAL PRIMARY KEY,
+    engagement_id BIGINT NOT NULL REFERENCES engagements(id) ON DELETE CASCADE,
+    kind          TEXT NOT NULL CHECK (kind IN ('domain','ip','cidr','keyword')),
+    value         TEXT NOT NULL,
+    -- excluded = "do not test": enforced by the target gate as block rules for every task of the engagement.
+    excluded      BOOLEAN NOT NULL DEFAULT false,
+    reason        TEXT NOT NULL DEFAULT '',
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (engagement_id, kind, value, excluded)
+);
+
+-- Audit trail. dedup_key makes one-shot events (budget thresholds, window notices) idempotent.
+CREATE TABLE IF NOT EXISTS engagement_events (
+    id            BIGSERIAL PRIMARY KEY,
+    engagement_id BIGINT NOT NULL REFERENCES engagements(id) ON DELETE CASCADE,
+    ts            TIMESTAMPTZ NOT NULL DEFAULT now(),
+    actor         TEXT NOT NULL DEFAULT 'system',
+    kind          TEXT NOT NULL,
+    detail        JSONB NOT NULL DEFAULT '{}',
+    dedup_key     TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_engagement_events_dedup ON engagement_events(engagement_id, dedup_key) WHERE dedup_key IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_engagement_events_eng ON engagement_events(engagement_id, ts DESC);
+
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS engagement_id BIGINT REFERENCES engagements(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS idx_tasks_engagement ON tasks(engagement_id) WHERE engagement_id IS NOT NULL;

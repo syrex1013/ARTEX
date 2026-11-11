@@ -46,6 +46,7 @@ type Server struct {
 
 	skillDir string // root directory for skill subdirectories
 	market   *skillMarket // skill marketplace catalogue cache
+	notifier *Notifier    // push engine; also used for engagement notices
 	jwtKey   []byte // HS256 signing key loaded from / generated into keyDir/jwt.key
 
 	scrubSecrets bool // drop ARTEX_PG_DSN and the API keys from the environment once read (binary only)
@@ -249,7 +250,9 @@ func New(ctx context.Context, m *Manager, skillDir string, dataDir string, keyDi
 		go newScheduler(s).Run(s.ctx) // P3 trigger scheduling (scheduled/finding/goal events), custom agents only
 		// Vulnerability IM push delivery engine. Sits beside the Scheduler but independent: push latency demands (3s)
 		// differ from the triggers' business cadence, and neither's failures drag the other down — a stuck push must not affect agent triggers.
-		go newNotifier(s).Run(s.ctx)
+		s.notifier = newNotifier(s)
+		go s.notifier.Run(s.ctx)
+		go newEngagementRunner(s).Run(s.ctx) // engagement testing windows and budgets
 		logSink.SetDB(ctx, m.pg) // restore last 100 log rows and enable async persistence
 	}
 	// precedence: persisted DB config > env.
@@ -779,6 +782,18 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("DELETE /api/assets", s.deleteAssets)
 
 	// company system
+	mux.HandleFunc("GET /api/engagements", s.engList)
+	mux.HandleFunc("POST /api/engagements", s.engCreate)
+	mux.HandleFunc("GET /api/engagements/{id}", s.engGet)
+	mux.HandleFunc("PATCH /api/engagements/{id}", s.engPatch)
+	mux.HandleFunc("DELETE /api/engagements/{id}", s.engDelete)
+	mux.HandleFunc("GET /api/engagements/{id}/scope", s.engScopeList)
+	mux.HandleFunc("POST /api/engagements/{id}/scope", s.engScopeAdd)
+	mux.HandleFunc("DELETE /api/engagements/{id}/scope/{sid}", s.engScopeDelete)
+	mux.HandleFunc("POST /api/engagements/{id}/tasks", s.engAttachTask)
+	mux.HandleFunc("DELETE /api/engagements/{id}/tasks/{tid}", s.engDetachTask)
+	mux.HandleFunc("GET /api/engagements/{id}/summary", s.engSummary)
+	mux.HandleFunc("GET /api/engagements/{id}/events", s.engEvents)
 	mux.HandleFunc("GET /api/companies", s.listCompanies)
 	mux.HandleFunc("POST /api/companies", s.createCompany)
 	mux.HandleFunc("GET /api/companies/{id}", s.getCompany)
@@ -1604,6 +1619,7 @@ type createTaskReq struct {
 	PlanHeartbeatSeconds int      `json:"plan_heartbeat_seconds"`      // planner heartbeat interval (seconds); 0/omitted = default 600 (10min); floor = default = 600, lower values are raised to 600
 	PlanQuietMode        *bool    `json:"plan_quiet_mode,omitempty"`   // planner quiet-mode switch (#86); omitted = default on; false = edge rounds always plan
 	TargetGate           *bool    `json:"target_gate,omitempty"`       // approval gate for asset targets, opt-in; omitted/null = off
+	EngagementID         *int64   `json:"engagement_id,omitempty"`     // attach the task to an engagement at creation
 	SeedFirstIntent      *bool    `json:"seed_first_intent,omitempty"` // issue one seed intent at creation (content = description + goal) so a worker can start right away without waiting for the first planner round; omitted/null = default off, the standard plan-then-execute flow. Pass true explicitly to enable (for CTF tasks often solved in one work, this skips the pre-start planner round).
 	CoverageEnabled      *bool    `json:"coverage_enabled,omitempty"`  // asset coverage feature; omitted/null = default on (true). false = disables coverage calculation/display/auto-accumulated scope + hides add_task_scope/list_untested_assets. company links are unaffected.
 	// InterceptRules: task-level asset interception/allow rules (entered at creation, stored in task_intercept_rules, never the global table).
@@ -1681,6 +1697,7 @@ func (s *Server) createTask(w http.ResponseWriter, r *http.Request) {
 		InterceptRules:  interceptRules,
 		LLMRotate:       req.LLMRotate,
 		TargetGate:      req.TargetGate,
+		EngagementID:    req.EngagementID,
 	})
 	if err != nil {
 		if errors.Is(err, db.ErrTaskCategoryInvalid) || errors.Is(err, db.ErrTaskCategoryNotFound) {
@@ -1695,6 +1712,7 @@ func (s *Server) createTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	log.Printf("[task] created task #%s «%s» goal: %s", t.ID, req.Description, req.Goal)
+	s.refreshEngagementGateForTask(t) // an enforcing engagement forces the target gate on before the first tool call
 	// Task credentials (#3): rows land after the task row commits; a bad entry
 	// fails the whole request so the UI never shows a half-configured task.
 	if len(req.Credentials) > 0 {

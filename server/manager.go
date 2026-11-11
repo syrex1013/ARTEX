@@ -76,6 +76,10 @@ type Task struct {
 	// targetGate is the task's opt-in to the approval gate for asset targets.
 	// Atomic: it is switched through the API while tool calls read it.
 	targetGate  atomic.Bool
+	// engagementID is the engagement the task belongs to (0 = none); engagementGate forces the target gate on while the
+	// engagement enforces a window or has "do not test" entries. Both are refreshed by the engagement handlers and runner.
+	engagementID   atomic.Int64
+	engagementGate atomic.Bool
 	interceptor *intercept.Interceptor // owner of the target gate, handed to the scope
 
 	// pendingTriggers accumulates the concrete changes (worker done / finding) that
@@ -883,6 +887,7 @@ func taskFromPG(pt *pgdb.Task, store *pgdb.ExplorationStore, ic *intercept.Inter
 		interceptor: ic,
 	}
 	t.targetGate.Store(pt.TargetGate)
+	t.engagementID.Store(pt.EngagementID)
 	return t
 }
 
@@ -891,7 +896,8 @@ func taskFromPG(pt *pgdb.Task, store *pgdb.ExplorationStore, ic *intercept.Inter
 // Enabled reads the task's opt-in flag on every call, so a switch through the
 // API takes effect on the next tool call.
 func (t *Task) targetScope(wait time.Duration) intercept.TargetScope {
-	return intercept.TargetScope{TaskID: t.ID, Enabled: t.targetGate.Load, WaitBound: wait, Interceptor: t.interceptor}
+	return intercept.TargetScope{TaskID: t.ID, Enabled: func() bool { return t.targetGate.Load() || t.engagementGate.Load() },
+		WaitBound: wait, Interceptor: t.interceptor}
 }
 
 // searchBackendEndpoints are the endpoints of the search backends. The

@@ -21,6 +21,7 @@ type fakeStore struct {
 	rules  []db.AssetInterceptRule
 	pins   []*db.TargetPin
 	exempt []db.TargetExemption
+	window string           // non-empty = the testing window is closed, with this reason
 	fail   map[string]error // by method name
 	reads  int
 	logged []db.TargetDecision
@@ -51,6 +52,13 @@ func (s *fakeStore) ActivePins(_ db.TargetScopeRef, host string, port int) ([]*d
 	}
 	slices.SortFunc(out, func(a, b *db.TargetPin) int { return b.Port - a.Port })
 	return out, nil
+}
+
+func (s *fakeStore) WindowClosed(db.TargetScopeRef) (bool, string, error) {
+	s.mu.Lock()
+	w := s.window
+	s.mu.Unlock()
+	return w != "", w, s.read("WindowClosed")
 }
 
 func (s *fakeStore) Exemptions() ([]db.TargetExemption, string, error) {
@@ -1039,4 +1047,34 @@ func TestSystemResolverAndLimits(t *testing.T) {
 	if !slices.Contains(res.ips, "127.0.0.1") && !slices.Contains(res.ips, "::1") {
 		t.Fatalf("localhost = %v, want a loopback address", res.ips)
 	}
+}
+
+// A closed testing window blocks every target before anything else is read or resolved, and the block is a
+// decided row; reopening it restores the normal flow.
+func TestClosedTestingWindowBlocksFirst(t *testing.T) {
+	g := newGate(t)
+	g.res.set("app.example.com", "203.0.113.7")
+	g.store.window = "outside the daily testing slots; it opens again at 2026-05-05T22:00:00Z"
+	res := g.blocked("window closed", TargetOutsideWindow, g.fetch(appURL))
+	if !strings.Contains(res.Reason, "testing window is closed") || !strings.Contains(res.Reason, "opens again at") {
+		t.Fatalf("reason = %q", res.Reason)
+	}
+	if g.res.total() != 0 {
+		t.Errorf("%d lookups before the window check, want none", g.res.total())
+	}
+	if got := g.store.outcomes(); len(got) != 1 || got[0] != "denied/outside_window" {
+		t.Fatalf("logged rows = %v", got)
+	}
+	// Even an exempt host is refused: outside the window nothing is tested.
+	g.store.exempt = []db.TargetExemption{{Host: "app.example.com", Port: 443}}
+	g.blocked("exempt host", TargetOutsideWindow, g.fetch(appURL))
+
+	// Reopened: the ordinary decision applies again (an unpinned host needs approval).
+	g.store.window = ""
+	g.store.exempt = nil
+	g.requests("window open", g.fetch(appURL))
+
+	// A failing read of the window never lets a call through.
+	g.store.fail = map[string]error{"WindowClosed": errors.New("db down")}
+	g.blocked("read failure", TargetGateUnavailable, g.fetch(appURL))
 }
