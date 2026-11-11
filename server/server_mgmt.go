@@ -1851,6 +1851,30 @@ func (s *Server) pgListProfiles(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"profiles": llmProfileDTOs(ps)})
 }
 
+// normalizeProfileForSave applies the write-side normalization shared by the profile API and the
+// configuration import: output-cap clamping, the max-tokens field-name rule, and User-Agent validation.
+//
+// Output cap: negative values are meaningless, clamp to zero (= do not send the field). The field-name
+// switch only matters for Chat Completions — anthropic and openai-responses hard-code their field names;
+// storing it would only mislead later readers, so it is cleared for any non-openai format. Unknown values
+// are cleared too, to avoid throwing DB CHECK errors at the user.
+func normalizeProfileForSave(p *db.LLMProfile) error {
+	if p.MaxTokens < 0 {
+		p.MaxTokens = 0
+	}
+	if p.Format != "openai" || p.MaxTokensField != llm.MaxTokensFieldCompletion {
+		p.MaxTokensField = ""
+	}
+	// Custom User-Agent: trim and reject control characters / over-long values so a bad value can never
+	// inject a header or bloat every request. "" = no override.
+	ua, err := agent.ValidateUserAgent(p.UserAgent)
+	if err != nil {
+		return err
+	}
+	p.UserAgent = ua
+	return nil
+}
+
 func (s *Server) pgSaveProfile(w http.ResponseWriter, r *http.Request) {
 	pg := s.pg(w)
 	if pg == nil {
@@ -1873,23 +1897,10 @@ func (s *Server) pgSaveProfile(w http.ResponseWriter, r *http.Request) {
 	p := body.LLMProfile
 	p.APIKey = body.APIKey
 	p.Streaming = body.Streaming == nil || *body.Streaming
-	// Output cap: negative values are meaningless, clamp to zero (= do not send the
-	// field). The field-name switch only matters for Chat Completions — anthropic and
-	// openai-responses hard-code their field names; storing it would only mislead later readers, so it is cleared for any non-openai format. Unknown values are cleared too, to avoid throwing DB CHECK errors at the user.
-	if p.MaxTokens < 0 {
-		p.MaxTokens = 0
-	}
-	if p.Format != "openai" || p.MaxTokensField != llm.MaxTokensFieldCompletion {
-		p.MaxTokensField = ""
-	}
-	// Custom User-Agent: trim and reject control characters / over-long values so a
-	// bad value can never inject a header or bloat every request. "" = no override.
-	ua, err := agent.ValidateUserAgent(p.UserAgent)
-	if err != nil {
+	if err := normalizeProfileForSave(&p); err != nil {
 		writeErr(w, 400, err.Error())
 		return
 	}
-	p.UserAgent = ua
 	id, err := pg.SaveProfile(&p)
 	if err != nil {
 		writeErr(w, 500, err.Error())

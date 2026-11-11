@@ -126,6 +126,25 @@ func (d *DB) ListProfiles() ([]*LLMProfile, error) {
 	return out, rows.Err()
 }
 
+// ListProfilesWithKeys returns every profile INCLUDING its plaintext API key. It exists only for
+// the explicit "export configuration with keys" flow; every other listing must use ListProfiles.
+func (d *DB) ListProfilesWithKeys() ([]*LLMProfile, error) {
+	rows, err := d.Query(`SELECT ` + profileColsKey + ` FROM llm_profiles ORDER BY id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*LLMProfile
+	for rows.Next() {
+		var p LLMProfile
+		if err := scanProfile(rows, &p.APIKey, &p); err != nil {
+			return nil, err
+		}
+		out = append(out, &p)
+	}
+	return out, rows.Err()
+}
+
 // ActiveProfile returns the default (active) profile with its api key, or nil.
 func (d *DB) ActiveProfile() (*LLMProfile, error) {
 	var p LLMProfile

@@ -2218,6 +2218,25 @@ function route(m: string, path: string, seg: string[], q: URLSearchParams, b: Re
   if (path === "/traffic/hosts") return { hosts: D.trafficHosts };
   if (path === "/traffic") return D.traffic;
   if (path === "/traffic/exchange") return D.trafficDetail;
+  if (path === "/config/export" && m === "GET") {
+    return {
+      format: "artex-config",
+      version: 1,
+      exported_at: new Date().toISOString(),
+      includes_secrets: true,
+      settings: { workers: D.settings.workers ?? 3, web_search_backend: D.settings.web_search_backend },
+      llm_profiles: [{ name: "mock-profile", format: "anthropic", model: "claude-mock", api_key: "sk-mock-0000" }],
+    };
+  }
+  if (path === "/config/import" && m === "POST") {
+    const n = (v: unknown) => (Array.isArray(v) ? v.length : v && typeof v === "object" ? Object.keys(v).length : 0);
+    const sections: Record<string, unknown> = {};
+    if (b.settings) sections.settings = { created: 0, updated: n(b.settings), skipped: 0 };
+    if (b.llm_profiles) sections.llm = { created: n(b.llm_profiles), updated: 0, skipped: 0 };
+    if (b.mcp_servers) sections.mcp = { created: n(b.mcp_servers), updated: 0, skipped: 0 };
+    if (b.notify_channels) sections.notify = { created: n(b.notify_channels), updated: 0, skipped: 0 };
+    return { dry_run: q.get("dry_run") === "true", sections };
+  }
   if (path === "/settings" && m === "GET") return D.settings;
   if (path === "/settings" && m === "PUT") return { ...D.settings, ...b };
   if (path === "/settings/web-search/test") return { ok: true, count: 5, backend: D.settings.web_search_backend };

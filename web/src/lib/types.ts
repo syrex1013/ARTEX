@@ -1616,3 +1616,32 @@ export interface InterceptExecution {
   seq: number;
   items: Activity[];
 }
+
+// ---- Configuration export / import ----
+export type ConfigSection = "settings" | "llm" | "mcp" | "notify";
+
+export interface ConfigBundle {
+  format: "artex-config";
+  version: number;
+  exported_at?: string;
+  includes_secrets: boolean;
+  settings?: Record<string, unknown>;
+  llm_retry_policy?: unknown;
+  llm_profiles?: Array<Record<string, unknown>>;
+  mcp_servers?: Array<Record<string, unknown>>;
+  notify_channels?: Array<Record<string, unknown>>;
+  // Browser-only preferences (theme, layout); written and applied by the web client, ignored by the server.
+  preferences?: Record<string, string>;
+}
+
+export interface ConfigImportSection {
+  created: number;
+  updated: number;
+  skipped: number;
+  errors?: string[];
+}
+
+export interface ConfigImportResult {
+  dry_run: boolean;
+  sections: Partial<Record<ConfigSection, ConfigImportSection>>;
+}

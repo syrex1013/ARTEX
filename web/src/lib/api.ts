@@ -74,6 +74,9 @@ import type {
   PromptVar,
   PromptVersion,
   SessionTokenUsage,
+  ConfigBundle,
+  ConfigImportResult,
+  ConfigSection,
   Settings,
   Severity,
   SkillCall,
@@ -821,6 +824,10 @@ export const api = {
   trafficDeleteAll: () => del<{ deleted: number; reclaimed: number }>(`/traffic/all`),
 
   // ---- app settings (runtime toggles) ----
+  // Configuration bundle (settings, LLM profiles incl. plaintext API keys, MCP servers, notification channels).
+  exportConfig: (sections: ConfigSection[]) => get<ConfigBundle>(`/config/export?sections=${sections.join(",")}`),
+  importConfig: (bundle: ConfigBundle, dryRun: boolean) =>
+    post<ConfigImportResult>(`/config/import?dry_run=${dryRun ? "true" : "false"}`, bundle),
   settings: () => get<Settings>(`/settings`),
   setSettings: (patch: Partial<Settings>) => put<Settings>(`/settings`, patch),
   // Run a real "test" search with the given (or saved) config to verify it works.

@@ -15,6 +15,8 @@ import { api } from "@/lib/api";
 import { CHAT_SEND_MODE_OPTIONS, type ChatSendMode, setChatSendMode, useChatSendMode } from "@/lib/chat-send-mode";
 import type { Settings } from "@/lib/types";
 
+import { ConfigBackupCard } from "./config-backup-card";
+
 export default function SystemSettingsPage() {
   const [trafficCapture, setTrafficCapture] = React.useState(false);
   const [agentTrafficBinding, setAgentTrafficBinding] = React.useState(false);
@@ -704,6 +706,7 @@ export default function SystemSettingsPage() {
             </Select>
           </CardContent>
         </Card>
+        <ConfigBackupCard onImported={() => void api.settings().then(apply).catch(() => undefined)} />
       </div>
     </div>
   );
