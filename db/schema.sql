@@ -1622,3 +1622,153 @@ CREATE INDEX IF NOT EXISTS idx_engagement_events_eng ON engagement_events(engage
 
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS engagement_id BIGINT REFERENCES engagements(id) ON DELETE SET NULL;
 CREATE INDEX IF NOT EXISTS idx_tasks_engagement ON tasks(engagement_id) WHERE engagement_id IS NOT NULL;
+
+-- Classification of a finding for reporting: CVSS, CWE, OWASP, ATT&CK and a remediation text. A side table keyed by
+-- the finding so the large findings queries stay untouched; it follows the finding on delete.
+CREATE TABLE IF NOT EXISTS finding_classification (
+    finding_id  BIGINT PRIMARY KEY REFERENCES findings(id) ON DELETE CASCADE,
+    cvss_vector TEXT NOT NULL DEFAULT '',
+    cvss_score  NUMERIC(3,1),
+    cwe         JSONB NOT NULL DEFAULT '[]',
+    owasp       JSONB NOT NULL DEFAULT '[]',
+    attack      JSONB NOT NULL DEFAULT '[]',
+    remediation TEXT NOT NULL DEFAULT '',
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- ---------------------------------------------------------------------------
+-- Formal Reports: a deliverable document built from findings, with a review workflow.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS reports (
+    id            BIGSERIAL PRIMARY KEY,
+    engagement_id BIGINT REFERENCES engagements(id) ON DELETE SET NULL,
+    task_id       BIGINT REFERENCES tasks(id) ON DELETE SET NULL,
+    title         TEXT NOT NULL,
+    template      TEXT NOT NULL DEFAULT 'technical',
+    status        TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','in_review','approved')),
+    branding      JSONB NOT NULL DEFAULT '{}',
+    exec_summary  TEXT NOT NULL DEFAULT '',
+    version       INT NOT NULL DEFAULT 1,
+    approved_by   TEXT NOT NULL DEFAULT '',
+    approved_at   TIMESTAMPTZ,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+DROP TRIGGER IF EXISTS trg_reports_upd ON reports;
+CREATE TRIGGER trg_reports_upd BEFORE UPDATE ON reports
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+-- Ordered list of findings to include in a report.
+CREATE TABLE IF NOT EXISTS report_findings (
+    report_id        BIGINT NOT NULL REFERENCES reports(id) ON DELETE CASCADE,
+    finding_id       BIGINT NOT NULL REFERENCES findings(id) ON DELETE CASCADE,
+    position         INT NOT NULL DEFAULT 0,
+    included         BOOLEAN NOT NULL DEFAULT true,
+    summary_override TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY (report_id, finding_id)
+);
+CREATE INDEX IF NOT EXISTS idx_report_findings_report ON report_findings(report_id, position);
+
+-- Immutable snapshots written on submit and on approve.
+CREATE TABLE IF NOT EXISTS report_versions (
+    id          BIGSERIAL PRIMARY KEY,
+    report_id   BIGINT NOT NULL REFERENCES reports(id) ON DELETE CASCADE,
+    version     INT NOT NULL,
+    snapshot    JSONB NOT NULL,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    created_by  TEXT NOT NULL DEFAULT '',
+    UNIQUE (report_id, version)
+);
+
+-- Review comments (per report or per finding within a report).
+CREATE TABLE IF NOT EXISTS report_comments (
+    id          BIGSERIAL PRIMARY KEY,
+    report_id   BIGINT NOT NULL REFERENCES reports(id) ON DELETE CASCADE,
+    finding_id  BIGINT REFERENCES findings(id) ON DELETE SET NULL,
+    author      TEXT NOT NULL DEFAULT '',
+    body        TEXT NOT NULL,
+    resolved    BOOLEAN NOT NULL DEFAULT false,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_report_comments_report ON report_comments(report_id, created_at);
+
+-- ---------------------------------------------------------------------------
+-- Attack Paths: manual or suggested chains of steps through the kill chain.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS attack_paths (
+    id            BIGSERIAL PRIMARY KEY,
+    engagement_id BIGINT REFERENCES engagements(id) ON DELETE SET NULL,
+    task_id       BIGINT REFERENCES tasks(id) ON DELETE SET NULL,
+    name          TEXT NOT NULL,
+    description   TEXT NOT NULL DEFAULT '',
+    source        TEXT NOT NULL DEFAULT 'manual' CHECK (source IN ('manual','suggested')),
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+DROP TRIGGER IF EXISTS trg_attack_paths_upd ON attack_paths;
+CREATE TRIGGER trg_attack_paths_upd BEFORE UPDATE ON attack_paths
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+CREATE TABLE IF NOT EXISTS attack_path_steps (
+    id          BIGSERIAL PRIMARY KEY,
+    path_id     BIGINT NOT NULL REFERENCES attack_paths(id) ON DELETE CASCADE,
+    position    INT NOT NULL DEFAULT 0,
+    kind        TEXT NOT NULL DEFAULT 'fact' CHECK (kind IN ('asset','finding','fact')),
+    ref_id      TEXT NOT NULL DEFAULT '',
+    tactic      TEXT NOT NULL DEFAULT '',
+    technique   TEXT NOT NULL DEFAULT '',
+    note        TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_attack_path_steps_path ON attack_path_steps(path_id, position);
+
+-- ---------------------------------------------------------------------------
+-- Social Engineering Campaigns
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS social_eng_campaigns (
+    id            BIGSERIAL PRIMARY KEY,
+    engagement_id BIGINT REFERENCES engagements(id) ON DELETE SET NULL,
+    name          TEXT NOT NULL,
+    kind          TEXT NOT NULL DEFAULT 'phishing' CHECK (kind IN ('phishing','vishing','smishing','pretexting')),
+    status        TEXT NOT NULL DEFAULT 'planning' CHECK (status IN ('planning','active','paused','completed')),
+    objective     TEXT NOT NULL DEFAULT '',
+    template_name TEXT NOT NULL DEFAULT '',
+    redirect_url  TEXT NOT NULL DEFAULT '',
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+DROP TRIGGER IF EXISTS trg_social_eng_campaigns_upd ON social_eng_campaigns;
+CREATE TRIGGER trg_social_eng_campaigns_upd BEFORE UPDATE ON social_eng_campaigns
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+CREATE TABLE IF NOT EXISTS social_eng_targets (
+    id          BIGSERIAL PRIMARY KEY,
+    campaign_id BIGINT NOT NULL REFERENCES social_eng_campaigns(id) ON DELETE CASCADE,
+    email       TEXT NOT NULL DEFAULT '',
+    phone       TEXT NOT NULL DEFAULT '',
+    name        TEXT NOT NULL DEFAULT '',
+    department  TEXT NOT NULL DEFAULT '',
+    sent_at     TIMESTAMPTZ,
+    opened_at   TIMESTAMPTZ,
+    clicked_at  TIMESTAMPTZ,
+    submitted_at TIMESTAMPTZ,
+    notes       TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_social_eng_targets_campaign ON social_eng_targets(campaign_id);
+
+-- ---------------------------------------------------------------------------
+-- Sliver C2 Server Configurations
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS sliver_configs (
+    id          BIGSERIAL PRIMARY KEY,
+    name        TEXT NOT NULL UNIQUE,
+    host        TEXT NOT NULL,
+    port        INT NOT NULL DEFAULT 31337,
+    operator    TEXT NOT NULL DEFAULT '',
+    ca_cert     TEXT NOT NULL DEFAULT '',
+    client_cert TEXT NOT NULL DEFAULT '',
+    client_key  TEXT NOT NULL DEFAULT '',
+    token       TEXT NOT NULL DEFAULT '',
+    enabled     BOOLEAN NOT NULL DEFAULT true,
+    last_seen   TIMESTAMPTZ,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);

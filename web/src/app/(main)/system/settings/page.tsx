@@ -2,7 +2,8 @@
 
 import * as React from "react";
 
-import { CpuIcon, FlaskConicalIcon, KeyboardIcon, RadioTowerIcon, SearchIcon, ShieldAlertIcon } from "lucide-react";
+import { CpuIcon, FlaskConicalIcon, KeyboardIcon, RadioTowerIcon, RocketIcon, SearchIcon, ShieldAlertIcon } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -18,6 +19,7 @@ import type { Settings } from "@/lib/types";
 import { ConfigBackupCard } from "./config-backup-card";
 
 export default function SystemSettingsPage() {
+  const router = useRouter();
   const [trafficCapture, setTrafficCapture] = React.useState(false);
   const [agentTrafficBinding, setAgentTrafficBinding] = React.useState(false);
   const [webSearch, setWebSearch] = React.useState(false);
@@ -707,6 +709,27 @@ export default function SystemSettingsPage() {
           </CardContent>
         </Card>
         <ConfigBackupCard onImported={() => void api.settings().then(apply).catch(() => undefined)} />
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <RocketIcon className="size-4" />
+              Setup Wizard
+            </CardTitle>
+            <CardDescription>Re-run the initial setup wizard to reconfigure your LLM provider, notifications, or import a config backup.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button
+              variant="outline"
+              onClick={() => {
+                localStorage.removeItem("artex_wizard_done");
+                router.push("/wizard");
+              }}
+            >
+              <RocketIcon className="mr-1.5 size-4" />
+              Re-run setup wizard
+            </Button>
+          </CardContent>
+        </Card>
       </div>
     </div>
   );

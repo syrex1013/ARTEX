@@ -116,6 +116,15 @@ import type {
   UsageStats,
   WorkspaceFile,
   WorkspaceListing,
+  SocialEngCampaign,
+  SocialEngTarget,
+  SETemplate,
+  SliverConfig,
+  ImplantHints,
+  VPNStatus,
+  VPNRelay,
+  AttackPath,
+  PathStep,
 } from "@/lib/types";
 
 function getToken(): string | null {
@@ -1364,4 +1373,55 @@ export const api = {
   // ledger, exact per call, covering per-agent bindings / pooling / interrupted spend).
   tokensByModel: (task: string) =>
     get<{ models: ModelTokenStat[] }>(`/llm/records/by-model?task=${encodeURIComponent(task)}`),
+
+  // ---- Social Engineering ----
+  listCampaigns: (engagementId?: number) =>
+    get<SocialEngCampaign[]>(`/social-eng/campaigns${engagementId ? `?engagement_id=${engagementId}` : ""}`),
+  createCampaign: (c: Partial<SocialEngCampaign>) => post<SocialEngCampaign>(`/social-eng/campaigns`, c),
+  getCampaign: (id: number) => get<SocialEngCampaign>(`/social-eng/campaigns/${id}`),
+  patchCampaign: (id: number, status: string) => patch<SocialEngCampaign>(`/social-eng/campaigns/${id}`, { status }),
+  deleteCampaign: (id: number) => del<void>(`/social-eng/campaigns/${id}`),
+  listCampaignTargets: (id: number) => get<SocialEngTarget[]>(`/social-eng/campaigns/${id}/targets`),
+  addCampaignTarget: (id: number, t: Partial<SocialEngTarget>) => post<SocialEngTarget>(`/social-eng/campaigns/${id}/targets`, t),
+  seTemplates: () => get<SETemplate[]>(`/social-eng/templates`),
+
+  // ---- Sliver C2 ----
+  listSliverConfigs: () => get<SliverConfig[]>(`/c2/sliver`),
+  createSliverConfig: (c: Partial<SliverConfig>) => post<SliverConfig>(`/c2/sliver`, c),
+  getSliverConfig: (id: number) => get<SliverConfig>(`/c2/sliver/${id}`),
+  deleteSliverConfig: (id: number) => del<void>(`/c2/sliver/${id}`),
+  sliverImplantHints: (params: { target?: string; os?: string; finding_id?: number }) => {
+    const sp = new URLSearchParams();
+    if (params.target) sp.set("target", params.target);
+    if (params.os) sp.set("os", params.os);
+    if (params.finding_id) sp.set("finding_id", String(params.finding_id));
+    return get<ImplantHints>(`/c2/sliver/hints?${sp}`);
+  },
+
+  // ---- Mullvad VPN ----
+  vpnStatus: () => get<VPNStatus>(`/vpn/status`),
+  vpnConnect: (server?: string) => post<VPNStatus>(`/vpn/connect`, { server }),
+  vpnDisconnect: () => post<VPNStatus>(`/vpn/disconnect`, {}),
+  vpnRelays: () => get<VPNRelay[]>(`/vpn/relays`),
+  vpnAccount: () => get<{ account: string }>(`/vpn/account`),
+  vpnSetAccount: (account: string) => put<{ ok: boolean }>(`/vpn/account`, { account }),
+
+  // ---- Attack Paths ----
+  listAttackPaths: (params?: { engagement_id?: number; task_id?: string }) => {
+    const sp = new URLSearchParams();
+    if (params?.engagement_id) sp.set("engagement_id", String(params.engagement_id));
+    if (params?.task_id) sp.set("task_id", params.task_id);
+    return get<AttackPath[]>(`/attack-paths?${sp}`);
+  },
+  createAttackPath: (p: Partial<AttackPath>) => post<AttackPath>(`/attack-paths`, p),
+  getAttackPath: (id: number) => get<AttackPath>(`/attack-paths/${id}`),
+  updateAttackPath: (id: number, p: Partial<AttackPath>) => put<AttackPath>(`/attack-paths/${id}`, p),
+  deleteAttackPath: (id: number) => del<void>(`/attack-paths/${id}`),
+  putPathSteps: (id: number, steps: PathStep[]) => put<AttackPath>(`/attack-paths/${id}/steps`, steps),
+  suggestAttackPath: (params: { q?: string; finding_id?: number }) => {
+    const sp = new URLSearchParams();
+    if (params.q) sp.set("q", params.q);
+    if (params.finding_id) sp.set("finding_id", String(params.finding_id));
+    return get<{ query: string; suggest: unknown; steps: PathStep[] }>(`/attack-paths/suggest?${sp}`);
+  },
 };

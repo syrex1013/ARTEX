@@ -1773,3 +1773,111 @@ export interface EngagementInput {
   budget_alert_pct?: number[];
   budget_action?: "alert" | "pause";
 }
+
+// ---- Social Engineering ----
+
+export interface SocialEngCampaign {
+  id: number;
+  engagement_id?: number;
+  name: string;
+  kind: "phishing" | "vishing" | "smishing" | "pretexting";
+  status: "planning" | "active" | "paused" | "completed";
+  objective: string;
+  template_name: string;
+  redirect_url: string;
+  created_at: string;
+  updated_at: string;
+  total_targets: number;
+  sent_count: number;
+  opened_count: number;
+  clicked_count: number;
+  submitted_count: number;
+}
+
+export interface SocialEngTarget {
+  id: number;
+  campaign_id: number;
+  email: string;
+  phone: string;
+  name: string;
+  department: string;
+  sent_at?: string;
+  opened_at?: string;
+  clicked_at?: string;
+  submitted_at?: string;
+  notes: string;
+}
+
+export interface SETemplate {
+  name: string;
+  kind: string;
+  subject: string;
+  body: string;
+}
+
+// ---- Sliver C2 ----
+
+export interface SliverConfig {
+  id: number;
+  name: string;
+  host: string;
+  port: number;
+  operator: string;
+  ca_cert?: string;
+  client_cert?: string;
+  token?: string;
+  enabled: boolean;
+  last_seen?: string;
+  created_at: string;
+}
+
+export interface ImplantHints {
+  target: string;
+  os: string;
+  context: string;
+  strategy: string;
+  commands: string[];
+  notes: string;
+}
+
+// ---- VPN ----
+
+export interface VPNStatus {
+  state: string;
+  location?: string;
+  ip?: string;
+  server?: string;
+  account?: string;
+  error?: string;
+}
+
+export interface VPNRelay {
+  country: string;
+  country_code: string;
+  cities: { name: string; servers: { hostname: string; active: boolean }[] }[];
+}
+
+// ---- Attack Paths ----
+
+export interface AttackPath {
+  id: number;
+  engagement_id?: number;
+  task_id?: string;
+  name: string;
+  description: string;
+  source: "manual" | "suggested";
+  steps: PathStep[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PathStep {
+  id?: number;
+  path_id?: number;
+  position: number;
+  kind: "asset" | "finding" | "fact";
+  ref_id?: string;
+  tactic?: string;
+  technique?: string;
+  note?: string;
+}
