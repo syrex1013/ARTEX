@@ -7,6 +7,7 @@
  * preventing layout or theme flicker and keeping RootLayout fully static.
  */
 import { PREFERENCE_DEFAULTS, PREFERENCE_PERSISTENCE } from "@/lib/preferences/preferences-config";
+import { THEME_PRESET_VALUES } from "@/lib/preferences/theme";
 
 export function ThemeBootScript() {
   const persistence = JSON.stringify({
@@ -28,6 +29,8 @@ export function ThemeBootScript() {
     sidebar_variant: PREFERENCE_DEFAULTS.sidebar_variant,
     sidebar_collapsible: PREFERENCE_DEFAULTS.sidebar_collapsible,
   });
+
+  const validPresets = JSON.stringify(THEME_PRESET_VALUES);
 
   const code = `
     (function () {
@@ -84,7 +87,8 @@ export function ThemeBootScript() {
           mode === "system" && window.matchMedia
             ? (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light")
             : mode;
-        var preset = rawPreset || DEFAULTS.theme_preset;
+        var VALID_PRESETS = ${validPresets};
+        var preset = VALID_PRESETS.indexOf(rawPreset) >= 0 ? rawPreset : DEFAULTS.theme_preset;
         var font = rawFont || DEFAULTS.font;
         var contentLayout = rawContentLayout || DEFAULTS.content_layout;
         var navbarStyle = rawNavbarStyle || DEFAULTS.navbar_style;

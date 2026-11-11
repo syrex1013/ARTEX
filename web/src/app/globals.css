@@ -6,6 +6,15 @@
 @import "../styles/presets/brutalist.css";
 @import "../styles/presets/soft-pop.css";
 @import "../styles/presets/tangerine.css";
+@import "../styles/presets/dracula.css";
+@import "../styles/presets/nord.css";
+@import "../styles/presets/catppuccin.css";
+@import "../styles/presets/tokyo-night.css";
+@import "../styles/presets/one-dark.css";
+@import "../styles/presets/gruvbox.css";
+@import "../styles/presets/solarized.css";
+@import "../styles/presets/monokai.css";
+@import "../styles/presets/rose-pine.css";
 
 @custom-variant dark (&:is(.dark *));
 

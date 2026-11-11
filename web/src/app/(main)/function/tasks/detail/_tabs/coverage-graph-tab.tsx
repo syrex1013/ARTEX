@@ -27,6 +27,7 @@ import {
 import { api } from "@/lib/api";
 import type { CoverageAssetRef, CoverageAssetRefs, CoverageGraphEdge, CoverageGraphNode } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { usePreferencesStore } from "@/stores/preferences/preferences-provider";
 
 // Default number of children shown per kind under each parent; the rest fold away, and "Show more" pulls in this many each time.
 const FOLD_LIMIT = 20;
@@ -239,6 +240,33 @@ function toG6Nodes(renderNodes: RenderNode[]): G6NodeDatum[] {
 // G6's types put custom fields under data, but the official force examples (and the runtime) read d.<field> at the top level.
 // Callback parameters use unknown to satisfy the G6 signature; nd() casts back to our top-level shape internally.
 const nd = (d: unknown) => d as G6NodeDatum;
+
+
+// Canvas colors cannot use CSS variables directly, so resolve the active theme's tokens at call time.
+function themeCanvasColors() {
+  const cs = getComputedStyle(document.documentElement);
+  // Tokens are OKLCH; the G6 canvas parser may not understand that, so rasterize one pixel to get plain rgb().
+  const ctx = document.createElement("canvas").getContext("2d", { willReadFrequently: true });
+  const toRgb = (value: string, fallback: string) => {
+    if (!ctx) return fallback;
+    ctx.clearRect(0, 0, 1, 1);
+    ctx.fillStyle = "#000";
+    ctx.fillStyle = value;
+    ctx.fillRect(0, 0, 1, 1);
+    const [r, g, b] = ctx.getImageData(0, 0, 1, 1).data;
+    return `rgb(${r}, ${g}, ${b})`;
+  };
+  const pick = (name: string, fallback: string) => {
+    const v = cs.getPropertyValue(name).trim();
+    return v ? toRgb(v, fallback) : fallback;
+  };
+  return {
+    background: pick("--muted", "#f0f2f7"),
+    label: pick("--muted-foreground", "#475569"),
+    labelBg: pick("--card", "#ffffff"),
+    edge: pick("--border", "#cbd5e1"),
+  };
+}
 
 // Tested = solid highlight; in scope but untested = gray; out of scope / folded = lighter gray + dashed stroke.
 function nodeFill(d: G6NodeDatum): string {
@@ -468,6 +496,8 @@ function GraphInner({ taskId, coverageEnabled = true }: { taskId: string; covera
 
   const containerRef = React.useRef<HTMLDivElement>(null);
   const graphRef = React.useRef<G6Graph | null>(null);
+  const themePreset = usePreferencesStore((st) => st.themePreset);
+  const resolvedMode = usePreferencesStore((st) => st.resolvedThemeMode);
   // The click handler needs the latest key→RenderNode map (G6 event callbacks read it via ref).
   const renderMapRef = React.useRef<Map<string, RenderNode>>(new Map());
   const gDataRef = React.useRef<{ nodes: G6NodeDatum[]; edges: { source: string; target: string }[] }>({
@@ -542,7 +572,7 @@ function GraphInner({ taskId, coverageEnabled = true }: { taskId: string; covera
         container: containerRef.current,
         autoResize: true,
         autoFit: "view",
-        background: "#f0f2f7",
+        background: themeCanvasColors().background,
         node: {
           style: {
             size: (d: unknown) => nd(d).size,
@@ -556,15 +586,16 @@ function GraphInner({ taskId, coverageEnabled = true }: { taskId: string; covera
             labelText: (d: unknown) => nd(d).lbl,
             labelFontSize: 10,
             labelPlacement: "bottom",
-            labelFill: "#475569",
+            labelFill: themeCanvasColors().label,
             labelBackground: true,
-            labelBackgroundFill: "rgba(255,255,255,0.75)",
+            labelBackgroundFill: themeCanvasColors().labelBg,
+            labelBackgroundOpacity: 0.75,
             labelBackgroundRadius: 3,
             labelPadding: [1, 3],
           },
         },
         edge: {
-          style: { stroke: "#cbd5e1", lineWidth: 1, endArrow: false },
+          style: { stroke: themeCanvasColors().edge, lineWidth: 1, endArrow: false },
         },
         layout: {
           type: "d3-force",
@@ -608,6 +639,24 @@ function GraphInner({ taskId, coverageEnabled = true }: { taskId: string; covera
       graphRef.current = null;
     };
   }, [applyData]);
+
+  // Theme preset / mode changed → recolor the canvas without rebuilding the graph.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: preset and mode are the triggers; colors are read from the DOM
+  React.useEffect(() => {
+    const graph = graphRef.current;
+    if (!graph) return;
+    // The root element attributes are updated before store subscribers re-render; wait a frame so computed styles are current.
+    const id = requestAnimationFrame(() => {
+      const c = themeCanvasColors();
+      graph.setOptions({
+        background: c.background,
+        node: { style: { labelFill: c.label, labelBackgroundFill: c.labelBg } },
+        edge: { style: { stroke: c.edge } },
+      });
+      void graph.draw();
+    });
+    return () => cancelAnimationFrame(id);
+  }, [themePreset, resolvedMode]);
 
   // Visible set changed → re-feed data + layout. sig is only a re-layout trigger (applyData reads gDataRef).
   // biome-ignore lint/correctness/useExhaustiveDependencies: sig is a deliberate re-layout trigger dependency
