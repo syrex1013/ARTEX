@@ -235,7 +235,7 @@ function CampaignDetail({ campaign, onStatusChange }: { campaign: SocialEngCampa
   async function setStatus(status: string) {
     setUpdatingStatus(true);
     try {
-      await api.patchCampaign(campaign.id, status);
+      await api.patchCampaign(campaign.id, { status } as Partial<import("@/lib/types").SocialEngCampaign>);
       onStatusChange();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to update status");
@@ -344,7 +344,7 @@ function CampaignDetail({ campaign, onStatusChange }: { campaign: SocialEngCampa
                     {tpl.subject && <CardDescription className="text-xs">{tpl.subject}</CardDescription>}
                   </CardHeader>
                   <CardContent className="pb-3">
-                    <pre className="whitespace-pre-wrap rounded bg-muted p-2 text-xs">{tpl.body}</pre>
+                    <pre className="whitespace-pre-wrap rounded bg-muted p-2 text-xs">{tpl.text_body || tpl.html_body}</pre>
                   </CardContent>
                 </Card>
               ))}

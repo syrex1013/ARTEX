@@ -1755,6 +1755,61 @@ CREATE TABLE IF NOT EXISTS social_eng_targets (
 );
 CREATE INDEX IF NOT EXISTS idx_social_eng_targets_campaign ON social_eng_targets(campaign_id);
 
+-- Email senders (SMTP, AgentMail, webhook)
+CREATE TABLE IF NOT EXISTS social_eng_senders (
+    id          BIGSERIAL PRIMARY KEY,
+    name        TEXT NOT NULL,
+    kind        TEXT NOT NULL DEFAULT 'smtp' CHECK (kind IN ('smtp','agentmail','webhook')),
+    from_email  TEXT NOT NULL DEFAULT '',
+    from_name   TEXT NOT NULL DEFAULT '',
+    config      JSONB NOT NULL DEFAULT '{}',
+    enabled     BOOL NOT NULL DEFAULT true,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Landing pages for credential harvesting / awareness surveys
+CREATE TABLE IF NOT EXISTS social_eng_landing_pages (
+    id                  BIGSERIAL PRIMARY KEY,
+    name                TEXT NOT NULL,
+    html                TEXT NOT NULL DEFAULT '',
+    capture_credentials BOOL NOT NULL DEFAULT false,
+    redirect_url        TEXT NOT NULL DEFAULT '',
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+DROP TRIGGER IF EXISTS trg_se_landing_pages_upd ON social_eng_landing_pages;
+CREATE TRIGGER trg_se_landing_pages_upd BEFORE UPDATE ON social_eng_landing_pages
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+-- Credentials submitted through landing pages
+CREATE TABLE IF NOT EXISTS social_eng_credentials (
+    id              BIGSERIAL PRIMARY KEY,
+    campaign_id     BIGINT REFERENCES social_eng_campaigns ON DELETE CASCADE,
+    target_id       BIGINT REFERENCES social_eng_targets ON DELETE SET NULL,
+    landing_page_id BIGINT REFERENCES social_eng_landing_pages ON DELETE SET NULL,
+    submitted_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    ip              TEXT NOT NULL DEFAULT '',
+    user_agent      TEXT NOT NULL DEFAULT '',
+    data            JSONB NOT NULL DEFAULT '{}'
+);
+CREATE INDEX IF NOT EXISTS idx_se_creds_campaign ON social_eng_credentials(campaign_id);
+
+-- New columns on campaigns (idempotent)
+ALTER TABLE social_eng_campaigns ADD COLUMN IF NOT EXISTS sender_id       BIGINT REFERENCES social_eng_senders ON DELETE SET NULL;
+ALTER TABLE social_eng_campaigns ADD COLUMN IF NOT EXISTS landing_page_id BIGINT REFERENCES social_eng_landing_pages ON DELETE SET NULL;
+ALTER TABLE social_eng_campaigns ADD COLUMN IF NOT EXISTS from_email      TEXT NOT NULL DEFAULT '';
+ALTER TABLE social_eng_campaigns ADD COLUMN IF NOT EXISTS from_name       TEXT NOT NULL DEFAULT '';
+ALTER TABLE social_eng_campaigns ADD COLUMN IF NOT EXISTS spoof_from      TEXT NOT NULL DEFAULT '';
+ALTER TABLE social_eng_campaigns ADD COLUMN IF NOT EXISTS spoof_from_name TEXT NOT NULL DEFAULT '';
+ALTER TABLE social_eng_campaigns ADD COLUMN IF NOT EXISTS subject         TEXT NOT NULL DEFAULT '';
+ALTER TABLE social_eng_campaigns ADD COLUMN IF NOT EXISTS html_body       TEXT NOT NULL DEFAULT '';
+ALTER TABLE social_eng_campaigns ADD COLUMN IF NOT EXISTS text_body       TEXT NOT NULL DEFAULT '';
+ALTER TABLE social_eng_campaigns ADD COLUMN IF NOT EXISTS technique       TEXT NOT NULL DEFAULT 'generic';
+ALTER TABLE social_eng_campaigns ADD COLUMN IF NOT EXISTS pretext         TEXT NOT NULL DEFAULT '';
+
+-- New column on targets: error from last send attempt
+ALTER TABLE social_eng_targets ADD COLUMN IF NOT EXISTS last_error TEXT NOT NULL DEFAULT '';
+
 -- ---------------------------------------------------------------------------
 -- Sliver C2 Server Configurations
 -- ---------------------------------------------------------------------------

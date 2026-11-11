@@ -119,6 +119,9 @@ import type {
   SocialEngCampaign,
   SocialEngTarget,
   SETemplate,
+  SESender,
+  SELandingPage,
+  SECredential,
   SliverConfig,
   ImplantHints,
   VPNStatus,
@@ -1379,11 +1382,27 @@ export const api = {
     get<SocialEngCampaign[]>(`/social-eng/campaigns${engagementId ? `?engagement_id=${engagementId}` : ""}`),
   createCampaign: (c: Partial<SocialEngCampaign>) => post<SocialEngCampaign>(`/social-eng/campaigns`, c),
   getCampaign: (id: number) => get<SocialEngCampaign>(`/social-eng/campaigns/${id}`),
-  patchCampaign: (id: number, status: string) => patch<SocialEngCampaign>(`/social-eng/campaigns/${id}`, { status }),
+  patchCampaign: (id: number, body: Partial<SocialEngCampaign>) => patch<SocialEngCampaign>(`/social-eng/campaigns/${id}`, body),
   deleteCampaign: (id: number) => del<void>(`/social-eng/campaigns/${id}`),
   listCampaignTargets: (id: number) => get<SocialEngTarget[]>(`/social-eng/campaigns/${id}/targets`),
   addCampaignTarget: (id: number, t: Partial<SocialEngTarget>) => post<SocialEngTarget>(`/social-eng/campaigns/${id}/targets`, t),
   seTemplates: () => get<SETemplate[]>(`/social-eng/templates`),
+  sendCampaign: (id: number) => post<{ sent: number; failed: number; errors: string[] }>(`/social-eng/campaigns/${id}/send`, {}),
+  sendTestEmail: (id: number, email: string, name?: string) =>
+    post<{ ok: string }>(`/social-eng/campaigns/${id}/send-test`, { email, name }),
+  listCampaignCreds: (id: number) => get<SECredential[]>(`/social-eng/campaigns/${id}/creds`),
+  // Senders
+  listSenders: () => get<SESender[]>(`/social-eng/senders`),
+  createSender: (s: Partial<SESender>) => post<SESender>(`/social-eng/senders`, s),
+  getSender: (id: number) => get<SESender>(`/social-eng/senders/${id}`),
+  updateSender: (id: number, s: Partial<SESender>) => put<SESender>(`/social-eng/senders/${id}`, s),
+  deleteSender: (id: number) => del<void>(`/social-eng/senders/${id}`),
+  // Landing pages
+  listLandingPages: () => get<SELandingPage[]>(`/social-eng/landing-pages`),
+  createLandingPage: (p: Partial<SELandingPage>) => post<SELandingPage>(`/social-eng/landing-pages`, p),
+  getLandingPage: (id: number) => get<SELandingPage>(`/social-eng/landing-pages/${id}`),
+  updateLandingPage: (id: number, p: Partial<SELandingPage>) => put<SELandingPage>(`/social-eng/landing-pages/${id}`, p),
+  deleteLandingPage: (id: number) => del<void>(`/social-eng/landing-pages/${id}`),
 
   // ---- Sliver C2 ----
   listSliverConfigs: () => get<SliverConfig[]>(`/c2/sliver`),

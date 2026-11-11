@@ -859,6 +859,24 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/social-eng/campaigns/{id}/targets", s.addCampaignTarget)
 	mux.HandleFunc("GET /api/social-eng/templates", s.seTplates)
 	mux.HandleFunc("GET /api/social-eng/track", s.trackCampaignEvent)
+	// Credential capture (no auth — called from landing pages)
+	mux.HandleFunc("POST /api/social-eng/submit", s.submitCredentials)
+	// Senders
+	mux.HandleFunc("GET /api/social-eng/senders", s.listSenders)
+	mux.HandleFunc("POST /api/social-eng/senders", s.createSender)
+	mux.HandleFunc("GET /api/social-eng/senders/{id}", s.getSender)
+	mux.HandleFunc("PUT /api/social-eng/senders/{id}", s.updateSender)
+	mux.HandleFunc("DELETE /api/social-eng/senders/{id}", s.deleteSender)
+	// Landing pages
+	mux.HandleFunc("GET /api/social-eng/landing-pages", s.listLandingPages)
+	mux.HandleFunc("POST /api/social-eng/landing-pages", s.createLandingPage)
+	mux.HandleFunc("GET /api/social-eng/landing-pages/{id}", s.getLandingPage)
+	mux.HandleFunc("PUT /api/social-eng/landing-pages/{id}", s.updateLandingPage)
+	mux.HandleFunc("DELETE /api/social-eng/landing-pages/{id}", s.deleteLandingPage)
+	// Campaign send + credentials
+	mux.HandleFunc("POST /api/social-eng/campaigns/{id}/send", s.sendCampaign)
+	mux.HandleFunc("POST /api/social-eng/campaigns/{id}/send-test", s.sendTestEmail)
+	mux.HandleFunc("GET /api/social-eng/campaigns/{id}/creds", s.listCampaignCreds)
 	// Sliver C2
 	mux.HandleFunc("GET /api/c2/sliver", s.listSliverConfigs)
 	mux.HandleFunc("POST /api/c2/sliver", s.createSliverConfig)

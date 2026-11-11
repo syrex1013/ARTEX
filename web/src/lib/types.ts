@@ -1783,8 +1783,19 @@ export interface SocialEngCampaign {
   kind: "phishing" | "vishing" | "smishing" | "pretexting";
   status: "planning" | "active" | "paused" | "completed";
   objective: string;
+  technique: string;
+  pretext: string;
   template_name: string;
   redirect_url: string;
+  sender_id?: number;
+  landing_page_id?: number;
+  from_email: string;
+  from_name: string;
+  spoof_from: string;
+  spoof_from_name: string;
+  subject: string;
+  html_body: string;
+  text_body: string;
   created_at: string;
   updated_at: string;
   total_targets: number;
@@ -1792,6 +1803,7 @@ export interface SocialEngCampaign {
   opened_count: number;
   clicked_count: number;
   submitted_count: number;
+  cred_count: number;
 }
 
 export interface SocialEngTarget {
@@ -1805,14 +1817,51 @@ export interface SocialEngTarget {
   opened_at?: string;
   clicked_at?: string;
   submitted_at?: string;
+  last_error?: string;
   notes: string;
 }
 
 export interface SETemplate {
   name: string;
   kind: string;
+  technique: string;
   subject: string;
-  body: string;
+  html_body: string;
+  text_body: string;
+  pretext: string;
+  spoof_domain?: string;
+}
+
+export interface SESender {
+  id: number;
+  name: string;
+  kind: "smtp" | "agentmail" | "webhook";
+  from_email: string;
+  from_name: string;
+  config: Record<string, unknown>;
+  enabled: boolean;
+  created_at: string;
+}
+
+export interface SELandingPage {
+  id: number;
+  name: string;
+  html: string;
+  capture_credentials: boolean;
+  redirect_url: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SECredential {
+  id: number;
+  campaign_id?: number;
+  target_id?: number;
+  landing_page_id?: number;
+  submitted_at: string;
+  ip: string;
+  user_agent: string;
+  data: Record<string, unknown>;
 }
 
 // ---- Sliver C2 ----
