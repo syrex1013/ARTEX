@@ -6,6 +6,7 @@ export type EngineMode = "exploring" | "paused" | "stalled" | "idle";
 
 export interface Task {
   id: string;
+  engagement_id?: number; // engagement the task belongs to
   name?: string; // optional task name; empty/absent = untitled, display falls back to the description
   category_id?: number;
   category_name?: string;
@@ -1682,4 +1683,93 @@ export interface MarketPreview {
   skill: MarketSkill;
   skill_md: string;
   files: { path: string; size: number }[];
+}
+
+// ---- Engagements ----
+export type EngagementStatus = "scoping" | "testing" | "reporting" | "retest" | "closed";
+
+export interface DailyWindow {
+  days: number[]; // ISO weekdays 1=Mon..7=Sun; empty = every day
+  start: string; // HH:MM
+  end: string; // HH:MM; an end before the start runs past midnight
+}
+
+export interface Engagement {
+  id: number;
+  name: string;
+  company_id?: number;
+  company_name?: string;
+  status: EngagementStatus;
+  roe: string;
+  contacts: { name?: string; role?: string; email?: string; phone?: string }[];
+  window_tz: string;
+  window_start?: string | null;
+  window_end?: string | null;
+  daily_windows: DailyWindow[];
+  window_enforce: boolean;
+  budget_eur?: number | null;
+  budget_alert_pct: number[];
+  budget_action: "alert" | "pause";
+  task_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface EngagementScopeRow {
+  id: number;
+  kind: "domain" | "ip" | "cidr" | "keyword";
+  value: string;
+  excluded: boolean;
+  reason?: string;
+  created_at: string;
+}
+
+export interface EngagementEvent {
+  id: number;
+  ts: string;
+  actor: string;
+  kind: string;
+  detail: Record<string, unknown>;
+}
+
+export interface EngagementSummary {
+  engagement: Engagement;
+  tasks: { id: number; name: string; description: string; status: string; paused: boolean; queued: boolean }[];
+  task_states: Record<string, number>;
+  findings: {
+    total: number;
+    by_severity: Record<string, number>;
+    buckets: { severity: string; status: string; count: number }[];
+  };
+  coverage: { denominator: number; tested: number; tasks: number };
+  retests: Record<string, number>;
+  usage: {
+    cost_eur: number;
+    unpriced_tokens: number;
+    input_tokens: number;
+    output_tokens: number;
+    profiles: { profile_name: string; input_tokens: number; output_tokens: number; cost_eur?: number }[];
+  } | null;
+  budget: { budget_eur?: number; used_pct?: number; action: string };
+  window: { enforced: boolean; configured: boolean; open: boolean; reason?: string; next_change?: string };
+  events: EngagementEvent[];
+}
+
+/** The writable fields of an engagement (create and patch). Absent = keep / default. */
+export interface EngagementInput {
+  name?: string;
+  company_id?: number;
+  clear_company?: boolean;
+  status?: EngagementStatus;
+  roe?: string;
+  contacts?: Engagement["contacts"];
+  window_tz?: string;
+  window_start?: string; // RFC3339; "" clears
+  window_end?: string;
+  daily_windows?: DailyWindow[];
+  window_enforce?: boolean;
+  budget_eur?: number;
+  clear_budget?: boolean;
+  budget_alert_pct?: number[];
+  budget_action?: "alert" | "pause";
 }

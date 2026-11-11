@@ -75,6 +75,11 @@ import type {
   PromptVersion,
   SessionTokenUsage,
   ConfigBundle,
+  Engagement,
+  EngagementEvent,
+  EngagementInput,
+  EngagementScopeRow,
+  EngagementSummary,
   ConfigImportResult,
   ConfigSection,
   MarketPreview,
@@ -265,6 +270,7 @@ export const api = {
     llmProfileIds?: number[];
     sourceTaskIds?: string[];
     companyIds?: number[];
+    engagementId?: number;
     timeoutSeconds?: number;
     seedFirstIntent?: boolean;
     planHeartbeatSeconds?: number;
@@ -280,6 +286,7 @@ export const api = {
       llm_profile_ids: input.llmProfileIds ?? [],
       source_task_ids: input.sourceTaskIds ?? [],
       company_ids: input.companyIds ?? [],
+      engagement_id: input.engagementId,
       timeout_seconds: input.timeoutSeconds ?? 0,
       seed_first_intent: input.seedFirstIntent ?? false,
       plan_heartbeat_seconds: input.planHeartbeatSeconds ?? 0, // 0 = the backend normalizes to the default 600 (10min)
@@ -287,6 +294,22 @@ export const api = {
       intercept_rules: input.interceptRules ?? [], // task-level asset interception rules
       credentials: input.credentials ?? [], // test accounts declared at creation; an empty password = the agent generates and records it (#3)
     }),
+  // ---- engagements ----
+  engagements: () => get<{ engagements: Engagement[] }>("/engagements").then((r) => arr(r.engagements)),
+  engagement: (id: number) => get<Engagement>(`/engagements/${id}`),
+  createEngagement: (input: EngagementInput) => post<Engagement>("/engagements", input),
+  updateEngagement: (id: number, input: EngagementInput) => patch<Engagement>(`/engagements/${id}`, input),
+  deleteEngagement: (id: number) => del<{ deleted: number }>(`/engagements/${id}`),
+  engagementSummary: (id: number) => get<EngagementSummary>(`/engagements/${id}/summary`),
+  engagementScope: (id: number) =>
+    get<{ scope: EngagementScopeRow[] }>(`/engagements/${id}/scope`).then((r) => arr(r.scope)),
+  addEngagementScope: (id: number, input: { kind: string; value: string; excluded: boolean; reason?: string }) =>
+    post<{ added: boolean; value: string }>(`/engagements/${id}/scope`, input),
+  deleteEngagementScope: (id: number, scopeId: number) => del<{ deleted: number }>(`/engagements/${id}/scope/${scopeId}`),
+  attachEngagementTask: (id: number, taskId: number) => post<{ attached: number }>(`/engagements/${id}/tasks`, { task_id: taskId }),
+  detachEngagementTask: (id: number, taskId: number) => del<{ detached: number }>(`/engagements/${id}/tasks/${taskId}`),
+  engagementEvents: (id: number, limit = 100) =>
+    get<{ events: EngagementEvent[] }>(`/engagements/${id}/events?limit=${limit}`).then((r) => arr(r.events)),
   taskCategories: () => get<{ categories: TaskCategory[] }>("/task-categories").then((r) => arr(r.categories)),
   updateTask: (id: string, input: { name?: string; pinned?: boolean }) => patch<Task>(`/tasks/${id}`, input),
   renameTask: (id: string, name: string) => patch<Task>(`/tasks/${id}`, { name }),

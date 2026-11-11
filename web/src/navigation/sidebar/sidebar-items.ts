@@ -4,6 +4,7 @@ import {
   BellRing,
   Bot,
   Brain,
+  BriefcaseBusiness,
   Bug,
   ClipboardList,
   FolderOpen,
@@ -68,6 +69,7 @@ export const sidebarItems: NavGroup[] = [
     items: [
       { id: "dashboard", title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
       { id: "chat", title: "Chat", url: "/chat", icon: MessageSquare },
+      { id: "engagements", title: "Engagements", url: "/function/engagements", icon: BriefcaseBusiness, badge: "new" },
       { id: "tasks", title: "Tasks", url: "/function/tasks", icon: Target },
       { id: "findings", title: "Findings", url: "/function/findings", icon: Bug },
       { id: "traffic", title: "Traffic", url: "/function/traffic", icon: Activity },

@@ -2405,6 +2405,72 @@ function route(m: string, path: string, seg: string[], q: URLSearchParams, b: Re
   if (path === "/sync/scopesentry/sync") return { synced: {}, companies: null, warnings: null, errors: null };
 
   // ── skills ──
+  if (path.startsWith("/engagements")) {
+    const now = new Date().toISOString();
+    const eng = {
+      id: 1,
+      name: "Acme external web assessment",
+      company_name: "Acme Corp",
+      status: "testing",
+      roe: "Testing only against the production web tier. No denial-of-service, no social engineering. Stop and call the client contact on any outage.",
+      contacts: [{ name: "Dana Lee", role: "Security lead", email: "dana@acme.example" }],
+      window_tz: "Europe/Berlin",
+      window_start: null,
+      window_end: null,
+      daily_windows: [{ days: [1, 2, 3, 4, 5], start: "22:00", end: "06:00" }],
+      window_enforce: true,
+      budget_eur: 50,
+      budget_alert_pct: [80, 100],
+      budget_action: "pause",
+      task_count: 2,
+      created_at: now,
+      updated_at: now,
+    };
+    if (path === "/engagements" && m === "GET") return { engagements: [eng] };
+    if (path === "/engagements" && m === "POST") return { ...eng, id: 2, name: String(b.name ?? "New engagement"), task_count: 0 };
+    if (/^\/engagements\/\d+$/.test(path)) return m === "DELETE" ? { deleted: 1 } : { ...eng, ...b };
+    if (path.endsWith("/summary"))
+      return {
+        engagement: eng,
+        tasks: [
+          { id: 1, name: "External recon", description: "Recon", status: "running", paused: false, queued: false },
+          { id: 2, name: "Auth testing", description: "Auth", status: "running", paused: true, queued: false },
+        ],
+        task_states: { running: 1, paused: 1 },
+        findings: {
+          total: 9,
+          by_severity: { critical: 1, high: 3, medium: 4, low: 1 },
+          buckets: [
+            { severity: "critical", status: "confirmed", count: 1 },
+            { severity: "high", status: "confirmed", count: 2 },
+            { severity: "high", status: "pending", count: 1 },
+            { severity: "medium", status: "confirmed", count: 4 },
+            { severity: "low", status: "pending", count: 1 },
+          ],
+        },
+        coverage: { denominator: 40, tested: 26, tasks: 2 },
+        retests: { none: 6, reproduced: 2, fixed: 1 },
+        usage: { cost_eur: 31.4, unpriced_tokens: 0, input_tokens: 4_200_000, output_tokens: 310_000, profiles: [] },
+        budget: { budget_eur: 50, used_pct: 62.8, action: "pause" },
+        window: { enforced: true, configured: true, open: false, reason: "outside the daily testing slots", next_change: new Date(Date.now() + 3 * 3600_000).toISOString() },
+        events: [
+          { id: 3, ts: now, actor: "system", kind: "window_closed", detail: { reason: "outside the daily testing slots", tasks_paused: 1 } },
+          { id: 2, ts: now, actor: "operator", kind: "scope_added", detail: { kind: "domain", value: "payments.acme.example", excluded: true } },
+          { id: 1, ts: now, actor: "operator", kind: "created", detail: { name: eng.name } },
+        ],
+      };
+    if (path.endsWith("/scope") && m === "GET")
+      return {
+        scope: [
+          { id: 1, kind: "domain", value: "acme.example", excluded: false, created_at: now },
+          { id: 2, kind: "cidr", value: "203.0.113.0/24", excluded: false, created_at: now },
+          { id: 3, kind: "domain", value: "payments.acme.example", excluded: true, reason: "PCI environment", created_at: now },
+        ],
+      };
+    if (path.endsWith("/scope")) return { added: true, value: String(b.value ?? "") };
+    if (path.endsWith("/events")) return { events: [] };
+    if (path.includes("/tasks")) return { attached: 1, detached: 1 };
+  }
   if (path.startsWith("/skill-market/")) {
     const sources = [{ id: "anthropics-skills", repo: "anthropics/skills", label: "Anthropic (official)", builtin: true }];
     const mk = (name: string, description: string, extra: Record<string, unknown> = {}) => ({

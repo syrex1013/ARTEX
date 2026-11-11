@@ -128,6 +128,7 @@ import type {
   ChatAttachment,
   Company,
   DeleteTaskOptions,
+  Engagement,
   DeleteTaskResult,
   LLMProfile,
   Task,
@@ -3083,6 +3084,8 @@ function CreateTaskSheet({
   const [companies, setCompanies] = React.useState<Company[]>([]);
   const [sourceTaskIDs, setSourceTaskIDs] = React.useState<string[]>([]);
   const [companyIDs, setCompanyIDs] = React.useState<number[]>([]);
+  const [engagements, setEngagements] = React.useState<Engagement[]>([]);
+  const [engagementID, setEngagementID] = React.useState<number | undefined>(undefined);
   const [llmProfileIDs, setLLMProfileIDs] = React.useState<string[]>([]);
   const [creating, setCreating] = React.useState(false);
   const [timeoutMin, setTimeoutMin] = React.useState(""); // task-level timeout (minutes); empty/0 = no limit
@@ -3108,6 +3111,10 @@ function CreateTaskSheet({
       .companies()
       .then(setCompanies)
       .catch(() => setCompanies([]));
+    api
+      .engagements()
+      .then(setEngagements)
+      .catch(() => setEngagements([]));
   }, []);
 
   // pickFiles uploads the chosen files into this draft's staging dir and appends their
@@ -3153,6 +3160,7 @@ function CreateTaskSheet({
         llmProfileIds: llmProfileIDs.map(Number),
         sourceTaskIds: sourceTaskIDs,
         companyIds: companyIDs,
+        engagementId: engagementID,
         timeoutSeconds: timeoutSec,
         seedFirstIntent,
         planHeartbeatSeconds: heartbeatSec,
@@ -3172,6 +3180,7 @@ function CreateTaskSheet({
       setSelectedTemplateID(null);
       setSourceTaskIDs([]);
       setCompanyIDs([]);
+      setEngagementID(undefined);
       setLLMProfileIDs([]);
       setTimeoutMin("");
       setHeartbeatMin("10");
@@ -3302,6 +3311,32 @@ function CreateTaskSheet({
               <FieldDescription>
                 Link up to {MAX_SOURCE_TASKS}{" "}
                 tasks. Live, read-only inheritance of the selected tasks' persistent blackboards, asset scope, and related traffic; the new task writes to its own blackboard.
+              </FieldDescription>
+            </Field>
+            <Field>
+              <FieldLabel htmlFor="task-engagement">Engagement (optional)</FieldLabel>
+              <Select
+                value={engagementID === undefined ? "none" : String(engagementID)}
+                onValueChange={(v) => setEngagementID(v === "none" ? undefined : Number(v))}
+              >
+                <SelectTrigger id="task-engagement" className="w-full">
+                  <SelectValue placeholder="No engagement" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    <SelectItem value="none">No engagement</SelectItem>
+                    {engagements
+                      .filter((e) => e.status !== "closed")
+                      .map((e) => (
+                        <SelectItem key={e.id} value={String(e.id)}>
+                          {e.name}
+                        </SelectItem>
+                      ))}
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+              <FieldDescription>
+                The task follows the engagement's testing window, do-not-test entries and budget.
               </FieldDescription>
             </Field>
             <Field>
