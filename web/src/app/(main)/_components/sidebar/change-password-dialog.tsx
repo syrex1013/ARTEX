@@ -52,7 +52,10 @@ export function ChangePasswordDialog({
     api
       .changePassword(oldPassword, newPassword)
       .then(() => {
-        toast.success("Password changed");
+        toast.success("Password changed; sign in again");
+        localStorage.removeItem("artex_token");
+        document.cookie = "artex_token=; path=/; max-age=0";
+        window.location.href = "/login";
         onOpenChange(false);
       })
       .catch((err) => toast.error(`Change failed: ${(err as Error).message}`))
@@ -66,7 +69,7 @@ export function ChangePasswordDialog({
           <DialogHeader>
             <DialogTitle>Change password</DialogTitle>
             <DialogDescription>
-              The username is fixed as <b>ARTEX</b>. Enter the current password to verify; login tokens issued before the change stay valid until they expire.
+              Enter your current password to verify. Changing your password revokes all your sessions immediately.
             </DialogDescription>
           </DialogHeader>
           <div className="flex flex-col gap-3 py-4">

@@ -3,27 +3,30 @@
 
 export type Tone = "neutral" | "blue" | "green" | "amber" | "red" | "rose" | "violet" | "slate";
 
+// Tone classes reference semantic tokens (--tone-*) declared in globals.css so
+// dark mode and theme presets recolor every status surface from one place.
 export const toneClasses: Record<Tone, string> = {
   neutral: "bg-muted text-muted-foreground border-transparent",
-  blue: "bg-blue-500/15 text-blue-600 dark:text-blue-400 border-blue-500/20",
-  green: "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/20",
-  amber: "bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/20",
-  red: "bg-red-500/15 text-red-600 dark:text-red-400 border-red-500/20",
+  blue: "bg-tone-info/15 text-tone-info border-tone-info/20",
+  green: "bg-tone-success/15 text-tone-success border-tone-success/20",
+  amber: "bg-tone-warn/15 text-tone-warn border-tone-warn/20",
+  red: "bg-tone-danger/15 text-tone-danger border-tone-danger/20",
   // rose is used for "Critical" — a solid high-emphasis fill clearly above the soft red outline of "High".
-  rose: "bg-rose-600 text-white border-rose-600 dark:bg-rose-600 dark:text-white",
-  violet: "bg-violet-500/15 text-violet-600 dark:text-violet-400 border-violet-500/20",
-  slate: "bg-slate-500/15 text-slate-600 dark:text-slate-400 border-slate-500/20",
+  rose: "bg-tone-critical text-white border-tone-critical",
+  violet: "bg-tone-accent/15 text-tone-accent border-tone-accent/20",
+  slate: "bg-tone-muted/15 text-tone-muted border-tone-muted/20",
 };
 
 export const toneDot: Record<Tone, string> = {
   neutral: "bg-muted-foreground",
-  blue: "bg-blue-500",
-  green: "bg-emerald-500",
-  amber: "bg-amber-500",
-  red: "bg-red-500",
+  blue: "bg-tone-info",
+  green: "bg-tone-success",
+  amber: "bg-tone-warn",
+  red: "bg-tone-danger",
+  // rose badge is a solid critical fill; a white dot keeps contrast on it.
   rose: "bg-white",
-  violet: "bg-violet-500",
-  slate: "bg-slate-500",
+  violet: "bg-tone-accent",
+  slate: "bg-tone-muted",
 };
 
 interface StatusMeta {

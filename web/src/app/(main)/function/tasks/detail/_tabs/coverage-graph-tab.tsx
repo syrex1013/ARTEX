@@ -1,29 +1,15 @@
 "use client";
 
 import * as React from "react";
+
 import type { Graph as G6Graph } from "@antv/g6";
-import {
-  AppWindow,
-  Building2,
-  Globe,
-  Link2,
-  type LucideIcon,
-  Radio,
-  RefreshCw,
-  Server,
-  Waypoints,
-} from "lucide-react";
+import { AppWindow, Building2, Globe, Link2, type LucideIcon, Radio, RefreshCw, Server, Waypoints } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { api } from "@/lib/api";
 import type { CoverageAssetRef, CoverageAssetRefs, CoverageGraphEdge, CoverageGraphNode } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -240,17 +226,37 @@ function toG6Nodes(renderNodes: RenderNode[]): G6NodeDatum[] {
 // Callback parameters use unknown to satisfy the G6 signature; nd() casts back to our top-level shape internally.
 const nd = (d: unknown) => d as G6NodeDatum;
 
-// Tested = solid highlight; in scope but untested = gray; out of scope / folded = lighter gray + dashed stroke.
-function nodeFill(d: G6NodeDatum): string {
-  if (d.fold) return "#f1f5f9";
-  if (!d.inScope) return "#e2e8f0";
-  if (d.tested) return kindMeta[d.kind].hex;
-  return "#94a3b8";
+// G6 renders in an SVG canvas where CSS vars don't resolve, so we read the resolved values off
+// :root at render time (empty during SSR; hex fallbacks keep the first paint stable).
+function graphVar(name: string): string {
+  if (typeof document === "undefined") return "";
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 }
-function nodeStroke(d: G6NodeDatum): string {
-  if (d.fold || !d.inScope) return "#94a3b8";
-  if (d.tested) return "#0f766e";
-  return "#64748b";
+
+// Theme-aware graph chrome colors: fills, strokes, edges, labels, canvas background.
+// kindMeta hex values stay as node identity colors.
+interface GraphColors {
+  fold: string;
+  out: string;
+  untested: string;
+  active: string;
+  stroke: string;
+  bg: string;
+  edge: string;
+  label: string;
+}
+
+// Tested = solid highlight; in scope but untested = gray; out of scope / folded = lighter gray + dashed stroke.
+function nodeFill(d: G6NodeDatum, gc: GraphColors): string {
+  if (d.fold) return gc.fold;
+  if (!d.inScope) return gc.out;
+  if (d.tested) return kindMeta[d.kind].hex;
+  return gc.untested;
+}
+function nodeStroke(d: G6NodeDatum, gc: GraphColors): string {
+  if (d.fold || !d.inScope) return gc.untested;
+  if (d.tested) return gc.active;
+  return gc.stroke;
 }
 
 // ---------------------------------------------------------------------------
@@ -260,8 +266,8 @@ function DetailRow({ label, children }: { label: string; children: React.ReactNo
   if (children === undefined || children === null || children === "") return null;
   return (
     <div className="flex items-start gap-3 py-1 text-sm">
-      <span className="text-muted-foreground w-16 shrink-0">{label}</span>
-      <span className="text-foreground min-w-0 flex-1 break-words">{children}</span>
+      <span className="w-16 shrink-0 text-muted-foreground">{label}</span>
+      <span className="min-w-0 flex-1 break-words text-foreground">{children}</span>
     </div>
   );
 }
@@ -270,7 +276,7 @@ function RefList({ title, items }: { title: string; items: CoverageAssetRef[] })
   if (items.length === 0) return null;
   return (
     <div>
-      <h4 className="text-muted-foreground mb-1 text-xs font-medium">
+      <h4 className="mb-1 font-medium text-muted-foreground text-xs">
         {title} ({items.length})
       </h4>
       <div className="flex flex-col gap-1">
@@ -331,12 +337,14 @@ function AssetSheet({
           <>
             <SheetHeader className="border-b p-4">
               <div className="flex items-center gap-2.5 pr-8">
-                <span className={cn("flex size-8 shrink-0 items-center justify-center rounded-lg shadow-sm", meta.iconBg)}>
+                <span
+                  className={cn("flex size-8 shrink-0 items-center justify-center rounded-lg shadow-sm", meta.iconBg)}
+                >
                   <Icon className="size-4 text-white" />
                 </span>
                 <div className="min-w-0">
                   <SheetTitle className="leading-tight">{meta.label}</SheetTitle>
-                  <span className="text-muted-foreground truncate font-mono text-xs" title={node.label}>
+                  <span className="truncate font-mono text-muted-foreground text-xs" title={node.label}>
                     {node.label}
                   </span>
                 </div>
@@ -345,7 +353,7 @@ function AssetSheet({
             <ScrollArea className="min-h-0 flex-1">
               <div className="flex w-full min-w-0 flex-col gap-4 p-4">
                 <section>
-                  <h4 className="text-muted-foreground mb-1 text-xs font-medium">Properties</h4>
+                  <h4 className="mb-1 font-medium text-muted-foreground text-xs">Properties</h4>
                   <DetailRow label="Type">{meta.label}</DetailRow>
                   <DetailRow label="Test status">
                     {node.in_scope ? (
@@ -363,7 +371,7 @@ function AssetSheet({
                   <DetailRow label="IP">{node.ip}</DetailRow>
                   <DetailRow label="Port">{node.port ? node.port : undefined}</DetailRow>
                   <DetailRow label="URL">
-                    {node.url ? <span className="font-mono text-xs break-all">{node.url}</span> : undefined}
+                    {node.url ? <span className="break-all font-mono text-xs">{node.url}</span> : undefined}
                   </DetailRow>
                   <DetailRow label="Title">{node.page_title}</DetailRow>
                   <DetailRow label="Status code">{node.status_code ? node.status_code : undefined}</DetailRow>
@@ -380,8 +388,8 @@ function AssetSheet({
                   </section>
                 )}
                 <section className="border-t pt-3">
-                  <h4 className="text-muted-foreground mb-1.5 text-xs font-medium">Raw data</h4>
-                  <pre className="bg-muted/50 text-foreground max-w-full overflow-hidden rounded-md border p-3 font-mono text-xs leading-relaxed break-all whitespace-pre-wrap">
+                  <h4 className="mb-1.5 font-medium text-muted-foreground text-xs">Raw data</h4>
+                  <pre className="max-w-full overflow-hidden whitespace-pre-wrap break-all rounded-md border bg-muted/50 p-3 font-mono text-foreground text-xs leading-relaxed">
                     {raw}
                   </pre>
                 </section>
@@ -416,7 +424,9 @@ function FoldSheet({
               <SheetTitle className="text-base">
                 Hidden {meta.label} ({fold.hidden.length})
               </SheetTitle>
-              <p className="text-muted-foreground text-xs">Tested items are shown first. Click "Show more" to pull the next batch into the graph.</p>
+              <p className="text-muted-foreground text-xs">
+                Tested items are shown first. Click "Show more" to pull the next batch into the graph.
+              </p>
             </SheetHeader>
             <ScrollArea className="min-h-0 flex-1">
               <div className="flex flex-col gap-1 p-3">
@@ -425,7 +435,7 @@ function FoldSheet({
                     key={n.key}
                     type="button"
                     onClick={() => onPick(n)}
-                    className="hover:bg-accent flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm"
+                    className="flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent"
                   >
                     <span
                       className={cn(
@@ -468,6 +478,20 @@ function GraphInner({ taskId, coverageEnabled = true }: { taskId: string; covera
 
   const containerRef = React.useRef<HTMLDivElement>(null);
   const graphRef = React.useRef<G6Graph | null>(null);
+  // Theme graph colors are read once per mount (page remount on theme switch is fine).
+  const gc: GraphColors = React.useMemo(
+    () => ({
+      fold: graphVar("--graph-node") || "#f1f5f9",
+      out: graphVar("--graph-node-border") || "#e2e8f0",
+      untested: graphVar("--graph-node-border") || "#94a3b8",
+      active: graphVar("--graph-node-active") || "#0f766e",
+      stroke: graphVar("--graph-label") || "#64748b",
+      bg: graphVar("--graph-bg") || "#f0f2f7",
+      edge: graphVar("--graph-edge") || "#cbd5e1",
+      label: graphVar("--graph-label") || "#475569",
+    }),
+    [],
+  );
   // The click handler needs the latest key→RenderNode map (G6 event callbacks read it via ref).
   const renderMapRef = React.useRef<Map<string, RenderNode>>(new Map());
   const gDataRef = React.useRef<{ nodes: G6NodeDatum[]; edges: { source: string; target: string }[] }>({
@@ -506,7 +530,10 @@ function GraphInner({ taskId, coverageEnabled = true }: { taskId: string; covera
   // Structure signature: rebuild the graph and re-run layout only when the visible node/edge set changes, to avoid needless jitter.
   const sig = React.useMemo(
     () =>
-      `${renderNodes.map((n) => `${n.key}:${n.fold ? "f" : n.node.tested ? "t" : "u"}`).sort().join(",")}|${renderEdges.length}`,
+      `${renderNodes
+        .map((n) => `${n.key}:${n.fold ? "f" : n.node.tested ? "t" : "u"}`)
+        .sort()
+        .join(",")}|${renderEdges.length}`,
     [renderNodes, renderEdges],
   );
 
@@ -542,12 +569,12 @@ function GraphInner({ taskId, coverageEnabled = true }: { taskId: string; covera
         container: containerRef.current,
         autoResize: true,
         autoFit: "view",
-        background: "#f0f2f7",
+        background: gc.bg,
         node: {
           style: {
             size: (d: unknown) => nd(d).size,
-            fill: (d: unknown) => nodeFill(nd(d)),
-            stroke: (d: unknown) => nodeStroke(nd(d)),
+            fill: (d: unknown) => nodeFill(nd(d), gc),
+            stroke: (d: unknown) => nodeStroke(nd(d), gc),
             lineWidth: (d: unknown) => (nd(d).fold || !nd(d).inScope ? 1 : 1.5),
             lineDash: (d: unknown) => (nd(d).fold || !nd(d).inScope ? [3, 3] : [0]),
             iconSrc: (d: unknown) => (nd(d).fold ? FOLD_ICON : KIND_ICON[nd(d).kind]),
@@ -556,7 +583,7 @@ function GraphInner({ taskId, coverageEnabled = true }: { taskId: string; covera
             labelText: (d: unknown) => nd(d).lbl,
             labelFontSize: 10,
             labelPlacement: "bottom",
-            labelFill: "#475569",
+            labelFill: gc.label,
             labelBackground: true,
             labelBackgroundFill: "rgba(255,255,255,0.75)",
             labelBackgroundRadius: 3,
@@ -564,7 +591,7 @@ function GraphInner({ taskId, coverageEnabled = true }: { taskId: string; covera
           },
         },
         edge: {
-          style: { stroke: "#cbd5e1", lineWidth: 1, endArrow: false },
+          style: { stroke: gc.edge, lineWidth: 1, endArrow: false },
         },
         layout: {
           type: "d3-force",
@@ -607,7 +634,7 @@ function GraphInner({ taskId, coverageEnabled = true }: { taskId: string; covera
       graph?.destroy();
       graphRef.current = null;
     };
-  }, [applyData]);
+  }, [applyData, gc]);
 
   // Visible set changed → re-feed data + layout. sig is only a re-layout trigger (applyData reads gDataRef).
   // biome-ignore lint/correctness/useExhaustiveDependencies: sig is a deliberate re-layout trigger dependency
@@ -640,21 +667,23 @@ function GraphInner({ taskId, coverageEnabled = true }: { taskId: string; covera
       <div ref={containerRef} className="h-full w-full" />
 
       {/* Legend + stats + refresh (overlay) */}
-      <div className="bg-card/95 pointer-events-auto absolute top-3 left-3 flex max-w-[340px] flex-col gap-2.5 rounded-lg border p-3 text-xs shadow-sm backdrop-blur">
+      <div className="pointer-events-auto absolute top-3 left-3 flex max-w-[340px] flex-col gap-2.5 rounded-lg border bg-card/95 p-3 text-xs shadow-sm backdrop-blur">
         <div className="flex items-center justify-between gap-3">
           {total > 0 ? (
             <span className="text-muted-foreground">
-              In scope <span className="text-foreground font-semibold tabular-nums">{inScope}</span>
+              In scope <span className="font-semibold text-foreground tabular-nums">{inScope}</span>
               {coverageEnabled && (
                 <>
                   {" "}
                   · Tested{" "}
-                  <span className="font-semibold tabular-nums text-emerald-600 dark:text-emerald-400">{tested}</span>
+                  <span className="font-semibold text-emerald-600 tabular-nums dark:text-emerald-400">{tested}</span>
                 </>
               )}
             </span>
           ) : (
-            <span className="text-muted-foreground">{loading ? "Loading…" : "No in-scope assets yet (anchor the task scope first)"}</span>
+            <span className="text-muted-foreground">
+              {loading ? "Loading…" : "No in-scope assets yet (anchor the task scope first)"}
+            </span>
           )}
           <Button variant="ghost" size="icon" className="size-6" onClick={fetchGraph} title="Refresh">
             <RefreshCw className={cn("size-3.5", loading && "animate-spin")} />
@@ -665,7 +694,7 @@ function GraphInner({ taskId, coverageEnabled = true }: { taskId: string; covera
             const m = kindMeta[k];
             const Icon = m.icon;
             return (
-              <span key={k} className="text-foreground inline-flex items-center gap-1.5">
+              <span key={k} className="inline-flex items-center gap-1.5 text-foreground">
                 <span className={cn("flex size-4 items-center justify-center rounded", m.iconBg)}>
                   <Icon className="size-2.5 text-white" />
                 </span>
@@ -674,7 +703,7 @@ function GraphInner({ taskId, coverageEnabled = true }: { taskId: string; covera
             );
           })}
         </div>
-        <div className="border-border/60 text-muted-foreground flex flex-wrap gap-x-3 gap-y-1.5 border-t pt-2">
+        <div className="flex flex-wrap gap-x-3 gap-y-1.5 border-border/60 border-t pt-2 text-muted-foreground">
           {coverageEnabled && (
             <>
               <span className="inline-flex items-center gap-1.5">
@@ -686,11 +715,11 @@ function GraphInner({ taskId, coverageEnabled = true }: { taskId: string; covera
             </>
           )}
           <span className="inline-flex items-center gap-1.5">
-            <span className="size-3 rounded-full border border-dashed border-neutral-400 bg-neutral-200" /> Out of scope
+            <span className="size-3 rounded-full border border-neutral-400 border-dashed bg-neutral-200" /> Out of scope
           </span>
         </div>
-        <p className="text-muted-foreground/80 border-border/60 border-t pt-2 leading-relaxed">
-          Force-directed layout; drag nodes and scroll to zoom. The gray "⋯" is a fold node — click it to expand more.
+        <p className="border-border/60 border-t pt-2 text-muted-foreground/80 leading-relaxed">
+          Force-directed layout; drag nodes and scroll to zoom. The gray "⋯" is a fold node: click it to expand more.
         </p>
       </div>
 

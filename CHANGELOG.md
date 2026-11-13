@@ -4,8 +4,21 @@ All notable changes to this project are documented in this file. The format is b
 
 ## [Unreleased]
 
+### Changed
+
+- **Engagement as the main view**: login and first-run setup now land on `/engagements` instead of the task list; the engagement workspace is the starting point for admins and members alike.
+- **Create tasks from an engagement**: the Tasks tab has a "New task" dialog (name, description, goal) that creates a task scoped to the engagement; it runs concurrently with the engagement's other tasks. The full console form with templates, categories, and credentials remains on the Tasks page.
+- **Demo data includes an engagement**: with `NEXT_PUBLIC_MOCK=1` the workspace renders one engagement grouping the fixture tasks and findings, so overview, tasks, and findings tabs are populated in the demo.
+- **Themeable status colors**: semantic status tones (info/success/warn/danger/critical/accent/muted) are CSS tokens (`--tone-*` in `globals.css`) consumed by `lib/status.ts`; badges, dots, and status chips across the dashboard, chat, sessions, intercept, transcripts, and the agent editor recolor with the theme in both modes.
+- **Theme-aware coverage graph**: the graph reads its chrome (canvas, nodes, edges, labels) from `--graph-*` tokens via a `graphVar()` helper instead of hard-coded light-theme colors.
+- **Consistent empty and loading states**: the shared `Empty` and `Skeleton` components replace bare text placeholders across traffic, assets, commands, llm-records, mcp, workspace, skills, sync, notify, and the findings asset tree.
+- **Accessibility**: floating promises in event handlers are explicit (`void`) or error-logged; checkbox/switch labels are associated with their controls via `htmlFor`/`id`; `public/logo.svg` has a title. Biome passes with no `noUnusedImports`, `noFloatingPromises`, `useSortedClasses`, or `useTemplate` diagnostics.
+- **Copy cleanup**: em-dashes are no longer used in user-visible copy; standalone `—` table placeholders are kept.
+
 ### Added
 
+- **Queued chat messages**: messages sent while the main agent (task sessions) or a conversation (chat page) is mid-turn are queued and run in order when the current turn finishes, instead of being rejected with 409. The composer stays usable while busy; task sessions show queued chips with a cancel button (`DELETE /api/tasks/{id}/chat/queue/{qid}`, `DELETE /api/conversations/{id}/queue/{qid}`), the chat page shows a queued count. Queues are in-memory, matching the existing turn-serialization design: a restart drops pending launches (the human message itself is persisted either way).
+- **Built-in Sliver C2 support**: paste a Sliver operator config (`sliver new-operator`) on the new C2 page (`/function/c2`) and the server connects to the Sliver server as an operator (native gRPC client, `bishopfox/sliver` v1.15). List interactive sessions and beacons, run a command in a session (blocking, 60 s), submit a command to a beacon and poll its task list, start/kill mtls/http/https/dns/wg listeners. Implant generation stays in the Sliver console for now (needs the full implant build config). Sliver settings are stored server-side in the settings table.
 - **Optional custom User-Agent for LLM requests**: an LLM profile can set a `User-Agent` value that overrides the header on every outbound LLM request; left empty, the default User-Agent is unchanged. The value is trimmed and rejected if it contains control characters or exceeds 256 bytes. Part of #154 (the fixed-full-URL mode is not included).
 
 ### Docs

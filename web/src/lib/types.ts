@@ -746,6 +746,7 @@ export interface FindingRetest {
 export interface Conversation {
   id: number;
   running?: boolean; // live server state, returned with the conversation list
+  queued?: number; // messages waiting for the current run to finish (omitted when 0)
   agent_key: string;
   title: string;
   llm_profile_id?: number;
@@ -1335,7 +1336,6 @@ export type TaskCredential = TaskCredentialInput & {
   updated_at: string;
 };
 
-
 export interface AssetInterceptRule {
   id: number;
   enabled: boolean;
@@ -1615,4 +1615,74 @@ export interface InterceptExecution {
   session: string;
   seq: number;
   items: Activity[];
+}
+
+// ---- Sliver C2 ----
+export interface SliverStatus {
+  configured: boolean;
+  connected: boolean;
+  host?: string;
+  port?: number;
+  operator?: string;
+  error?: string;
+}
+
+export interface SliverSession {
+  id: string;
+  name: string;
+  hostname: string;
+  username: string;
+  uid: string;
+  os: string;
+  arch: string;
+  transport: string;
+  remote_address: string;
+  pid: number;
+  filename: string;
+  last_checkin: string;
+  active_c2: string;
+  version: string;
+}
+
+export interface SliverBeacon extends SliverSession {
+  interval: number; // check-in interval, seconds
+  next_checkin: string;
+  reconnect_interval: number;
+}
+
+export interface SliverJob {
+  id: number;
+  name: string;
+  description: string;
+  protocol: string;
+  port: number;
+  domains?: string[];
+}
+
+export interface SliverJobSpec {
+  type: "mtls" | "http" | "https" | "dns" | "wg";
+  host: string;
+  port: number;
+  domains?: string[];
+  website?: string;
+}
+
+// state is the Sliver BeaconTaskState enum: 0 pending, 1 sent, 2 completed.
+export interface SliverBeaconTask {
+  id: string;
+  beacon_id: string;
+  created_at: string;
+  state: string | number;
+  sent_at: string;
+  completed_at: string;
+  description: string;
+  response: string;
+}
+
+export interface SliverInteractResult {
+  status: string;
+  pid: number;
+  stdout: string;
+  stderr: string;
+  beacon: boolean;
 }

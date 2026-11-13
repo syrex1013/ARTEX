@@ -22,6 +22,9 @@ import (
 //go:embed schema.sql
 var schemaSQL string
 
+//go:embed collaboration.sql
+var collaborationSQL string
+
 const schemaMigrationLockKey int64 = 7337741001
 
 // maxOpenConns is the connection pool cap; see the note in Open. It sits well
@@ -49,7 +52,7 @@ func isPostgresDeadlock(err error) bool {
 
 func applySchemaWithRetry(ctx context.Context, execer schemaExecer, sleep func(time.Duration)) error {
 	for attempt := 0; ; attempt++ {
-		if _, err := execer.ExecContext(ctx, schemaSQL); err != nil {
+		if _, err := execer.ExecContext(ctx, schemaSQL+"\n"+collaborationSQL); err != nil {
 			if !isPostgresDeadlock(err) || attempt >= len(schemaDeadlockRetryDelays) {
 				return err
 			}

@@ -33,10 +33,12 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Empty, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Skeleton } from "@/components/ui/skeleton";
 import { SortableHead } from "@/components/ui/sortable-head";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -341,23 +343,23 @@ export default function TrafficPage() {
     <div className="flex min-h-0 flex-1 flex-col gap-4">
       <div className="flex items-center justify-between gap-4">
         <div>
-          <h1 className="text-xl font-semibold tracking-tight">Traffic</h1>
+          <h1 className="font-semibold text-xl tracking-tight">Traffic</h1>
           <p className="text-muted-foreground text-sm">Global recording proxy · all HTTP traffic</p>
         </div>
         <div className="flex items-center gap-4 text-sm">
           <span
             className={cn(
-              "inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-xs font-medium",
+              "inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 font-medium text-xs",
               traffic?.enabled
-                ? "border-emerald-500/20 bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
+                ? "border-tone-success/20 bg-tone-success/15 text-tone-success"
                 : "border-transparent bg-muted text-muted-foreground",
             )}
           >
             <RadioTowerIcon className="size-3.5" />
             {traffic?.enabled ? "Recording" : "Disabled"}
           </span>
-          {traffic?.proxy && <span className="font-mono text-xs text-muted-foreground">{traffic.proxy}</span>}
-          <span className="text-xs text-muted-foreground">
+          {traffic?.proxy && <span className="font-mono text-muted-foreground text-xs">{traffic.proxy}</span>}
+          <span className="text-muted-foreground text-xs">
             <span className="tabular-nums">{traffic?.count ?? 0}</span> records
           </span>
         </div>
@@ -373,12 +375,12 @@ export default function TrafficPage() {
             </Button>
           </PopoverTrigger>
           <PopoverContent
-            className="w-[calc(100vw-2rem)] p-0 data-open:animate-none data-closed:animate-none sm:w-80"
+            className="w-[calc(100vw-2rem)] p-0 data-closed:animate-none data-open:animate-none sm:w-80"
             align="start"
             collisionPadding={16}
           >
             <div className="flex items-center justify-between border-b px-3 py-2">
-              <span className="text-xs font-medium text-muted-foreground">Batch delete by target</span>
+              <span className="font-medium text-muted-foreground text-xs">Batch delete by target</span>
               <div className="flex items-center gap-1">
                 {hosts.length > 0 && (
                   <Tooltip>
@@ -396,7 +398,9 @@ export default function TrafficPage() {
                         {hostCountSortDirection === "desc" ? <ArrowDownWideNarrowIcon /> : <ArrowUpNarrowWideIcon />}
                       </Button>
                     </TooltipTrigger>
-                    <TooltipContent>By packet count, {hostCountSortDirection === "desc" ? "descending" : "ascending"}</TooltipContent>
+                    <TooltipContent>
+                      By packet count, {hostCountSortDirection === "desc" ? "descending" : "ascending"}
+                    </TooltipContent>
                   </Tooltip>
                 )}
                 {hosts.length > 0 && (
@@ -413,7 +417,14 @@ export default function TrafficPage() {
             </div>
             <div className="max-h-64 overflow-y-auto">
               {hosts.length === 0 ? (
-                <div className="px-3 py-6 text-center text-xs text-muted-foreground">No traffic records</div>
+                <Empty className="py-6">
+                  <EmptyHeader>
+                    <EmptyMedia variant="icon">
+                      <RadioTowerIcon />
+                    </EmptyMedia>
+                    <EmptyTitle>No traffic records</EmptyTitle>
+                  </EmptyHeader>
+                </Empty>
               ) : (
                 sortedHosts.map((h, index) => (
                   <label
@@ -431,7 +442,7 @@ export default function TrafficPage() {
                       }
                     />
                     <span className="truncate font-mono">{h.host}</span>
-                    <span className="ml-auto shrink-0 tabular-nums text-muted-foreground">{h.count}</span>
+                    <span className="ml-auto shrink-0 text-muted-foreground tabular-nums">{h.count}</span>
                   </label>
                 ))
               )}
@@ -514,9 +525,9 @@ export default function TrafficPage() {
           </SelectContent>
         </Select>
 
-        <div className="ml-auto flex items-center gap-2 text-xs text-muted-foreground">
+        <div className="ml-auto flex items-center gap-2 text-muted-foreground text-xs">
           <span className="tabular-nums">
-            {rangeStart}–{rangeEnd} / {total}
+            {rangeStart}-{rangeEnd} / {total}
           </span>
           <Button
             variant="outline"
@@ -544,7 +555,7 @@ export default function TrafficPage() {
 
       {/* Advanced filters (issue #177): narrow 660k+ exchanges down to the one packet. */}
       <div className="flex flex-wrap items-center gap-2 rounded-md border bg-muted/30 px-2 py-1.5">
-        <span className="pl-1 text-xs font-medium text-muted-foreground">Advanced filters</span>
+        <span className="pl-1 font-medium text-muted-foreground text-xs">Advanced filters</span>
         <div className="relative w-56">
           <Input
             placeholder="Response content (body keyword, ≥3 chars)"
@@ -574,7 +585,7 @@ export default function TrafficPage() {
             ))}
           </SelectContent>
         </Select>
-        <div className="flex items-center gap-1 text-xs text-muted-foreground">
+        <div className="flex items-center gap-1 text-muted-foreground text-xs">
           <span>Response size</span>
           <Input
             type="number"
@@ -584,7 +595,7 @@ export default function TrafficPage() {
             onChange={(e) => setRespMin(e.target.value)}
             className="h-8 w-24"
           />
-          <span>–</span>
+          <span>-</span>
           <Input
             type="number"
             min={0}
@@ -603,7 +614,7 @@ export default function TrafficPage() {
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        <span className="text-sm text-muted-foreground">{selectedFlows.size} flows selected</span>
+        <span className="text-muted-foreground text-sm">{selectedFlows.size} flows selected</span>
         <Button variant="outline" size="sm" disabled={selectedFlows.size === 0} onClick={() => setLinking(true)}>
           Link to finding
         </Button>
@@ -689,7 +700,7 @@ export default function TrafficPage() {
                         }
                       />
                     </TableCell>
-                    <TableCell className="text-xs text-muted-foreground tabular-nums">{fmtTime(e.ts)}</TableCell>
+                    <TableCell className="text-muted-foreground text-xs tabular-nums">{fmtTime(e.ts)}</TableCell>
                     <TableCell className="font-mono text-xs">{e.host}</TableCell>
                     <TableCell>
                       <MethodBadge method={e.method} />
@@ -698,18 +709,33 @@ export default function TrafficPage() {
                       <span className="block truncate font-mono text-xs">{e.url}</span>
                     </TableCell>
                     <TableCell>
-                      <span className={cn("font-mono text-xs font-semibold tabular-nums", statusTone(e.status))}>
+                      <span className={cn("font-mono font-semibold text-xs tabular-nums", statusTone(e.status))}>
                         {e.status}
                       </span>
                     </TableCell>
-                    <TableCell className="text-xs text-muted-foreground">{e.content_type}</TableCell>
+                    <TableCell className="text-muted-foreground text-xs">{e.content_type}</TableCell>
                     <TableCell className="text-right text-xs tabular-nums">{fmtBytes(e.resp_len)}</TableCell>
                   </TableRow>
                 ))}
                 {exchanges.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={8} className="py-12 text-center text-sm text-muted-foreground">
-                      {traffic === null ? "Loading…" : "No matching traffic."}
+                    <TableCell colSpan={8} className="py-10">
+                      {traffic === null ? (
+                        <div className="mx-auto flex max-w-sm flex-col gap-2">
+                          <Skeleton className="h-4 w-full" />
+                          <Skeleton className="h-4 w-4/5" />
+                          <Skeleton className="h-4 w-3/5" />
+                        </div>
+                      ) : (
+                        <Empty>
+                          <EmptyHeader>
+                            <EmptyMedia variant="icon">
+                              <RadioTowerIcon />
+                            </EmptyMedia>
+                            <EmptyTitle>No matching traffic</EmptyTitle>
+                          </EmptyHeader>
+                        </Empty>
+                      )}
                     </TableCell>
                   </TableRow>
                 )}
@@ -736,7 +762,7 @@ export default function TrafficPage() {
                   <Badge variant="secondary" className={cn("font-mono tabular-nums", statusTone(selected.status))}>
                     {selected.status}
                   </Badge>
-                  <span className="ml-auto text-xs text-muted-foreground tabular-nums">{fmtTime(selected.ts)}</span>
+                  <span className="ml-auto text-muted-foreground text-xs tabular-nums">{fmtTime(selected.ts)}</span>
                 </div>
                 <SheetTitle className="break-all font-mono">{selected.host}</SheetTitle>
                 <SheetDescription className="break-all font-mono">{selected.url}</SheetDescription>
@@ -748,7 +774,7 @@ export default function TrafficPage() {
                 </TabsList>
                 <TabsContent value="request" className="min-h-0 overflow-auto">
                   {detailLoading ? (
-                    <div className="flex items-center gap-2 p-5 text-xs text-muted-foreground">
+                    <div className="flex items-center gap-2 p-5 text-muted-foreground text-xs">
                       <Loader2Icon className="size-3.5 animate-spin" />
                       Loading messages…
                     </div>
@@ -758,7 +784,7 @@ export default function TrafficPage() {
                 </TabsContent>
                 <TabsContent value="response" className="min-h-0 overflow-auto">
                   {detailLoading ? (
-                    <div className="flex items-center gap-2 p-5 text-xs text-muted-foreground">
+                    <div className="flex items-center gap-2 p-5 text-muted-foreground text-xs">
                       <Loader2Icon className="size-3.5 animate-spin" />
                       Loading messages…
                     </div>
@@ -784,17 +810,21 @@ export default function TrafficPage() {
             <AlertDialogDescription>
               {deleteMode === "all" && (
                 <>
-                  This will permanently delete all <span className="font-semibold tabular-nums">{traffic?.count ?? 0}</span>{" "}
-                  traffic records (including raw requests/responses), ignoring the current filters. This action cannot be undone. Traffic evidence already bound to findings lives in a separate evidence store and is unaffected.
+                  This will permanently delete all{" "}
+                  <span className="font-semibold tabular-nums">{traffic?.count ?? 0}</span> traffic records (including
+                  raw requests/responses), ignoring the current filters. This action cannot be undone. Traffic evidence
+                  already bound to findings lives in a separate evidence store and is unaffected.
                   <br />
                   <span className="text-muted-foreground">
-                    Purging also compacts storage, returning the index's disk space to the system; traffic recording pauses briefly during this time.
+                    Purging also compacts storage, returning the index's disk space to the system; traffic recording
+                    pauses briefly during this time.
                   </span>
                 </>
               )}
               {deleteMode === "selected" && (
                 <>
-                  This will permanently delete all traffic records for <span className="font-semibold tabular-nums">{selectedHosts.length}</span> targets (
+                  This will permanently delete all traffic records for{" "}
+                  <span className="font-semibold tabular-nums">{selectedHosts.length}</span> targets (
                   <span className="font-mono">
                     {selectedHosts.slice(0, 3).join(", ")}
                     {selectedHosts.length > 3 ? "…" : ""}
@@ -804,8 +834,9 @@ export default function TrafficPage() {
               )}
               {deleteMode === "filter" && (
                 <>
-                  This will permanently delete all traffic records for hosts containing <span className="font-mono font-semibold">{hostQ}</span>{" "}
-                  (including raw requests/responses). This action cannot be undone.
+                  This will permanently delete all traffic records for hosts containing{" "}
+                  <span className="font-mono font-semibold">{hostQ}</span> (including raw requests/responses). This
+                  action cannot be undone.
                 </>
               )}
             </AlertDialogDescription>

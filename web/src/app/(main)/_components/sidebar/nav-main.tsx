@@ -1,13 +1,12 @@
 "use client";
 
 import * as React from "react";
+
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
-import { ChevronRight, MailIcon, PlusCircleIcon } from "lucide-react";
-import { api } from "@/lib/api";
+import { ChevronRight } from "lucide-react";
 
-import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import {
   DropdownMenu,
@@ -29,7 +28,10 @@ import {
   SidebarMenuSubItem,
   useSidebar,
 } from "@/components/ui/sidebar";
+import { http } from "@/lib/api";
+import type { InterceptPending } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { visiblePoll } from "@/lib/visible-poller";
 import type {
   NavBadge,
   NavGroup,
@@ -165,21 +167,21 @@ function NavItem({ item, isItemActive, isSubItemActive, isSubmenuOpen }: NavItem
 // count badge when there are unresolved approval requests.
 function InterceptPendingBadge() {
   const [count, setCount] = React.useState(0);
-  React.useEffect(() => {
-    let live = true;
-    async function poll() {
-      try {
-        const list = await api.interceptPending();
-        if (live) setCount(list.length);
-      } catch { /* ignore */ }
-    }
-    poll();
-    const t = setInterval(poll, 5000);
-    return () => { live = false; clearInterval(t); };
-  }, []);
+  React.useEffect(
+    () =>
+      visiblePoll(async (signal) => {
+        try {
+          const list = await http<InterceptPending[]>("/intercept/pending", { signal });
+          if (!signal.aborted) setCount(list.length);
+        } catch {
+          /* Dashboard and approval page expose read failures. */
+        }
+      }, 15000),
+    [],
+  );
   if (count === 0) return null;
   return (
-    <SidebarMenuBadge className="flex h-4.5 min-w-[18px] items-center justify-center rounded-full bg-amber-500 px-1 text-[10px] font-semibold leading-none text-white shadow-sm ring-1 ring-amber-400/40">
+    <SidebarMenuBadge className="flex h-4.5 min-w-[18px] items-center justify-center rounded-full bg-tone-warn px-1 font-semibold text-[10px] text-white leading-none shadow-sm ring-1 ring-tone-warn/40">
       {count > 99 ? "99+" : count}
     </SidebarMenuBadge>
   );

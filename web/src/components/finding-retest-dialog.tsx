@@ -42,7 +42,11 @@ export function FindingRetestDialog({ findingId, findingName, onClose, onStarted
       const result = await api.startFindingRetest(findingId, notes.trim());
       onStarted?.(result.retest);
       onClose();
-      toast.success(result.created ? "Retest started; click 'Retesting' to view the session" : "This vulnerability is already being retested; view the existing session");
+      toast.success(
+        result.created
+          ? "Retest started; click 'Retesting' to view the session"
+          : "This vulnerability is already being retested; view the existing session",
+      );
     } catch (e) {
       toast.error(`Failed to start retest: ${(e as Error).message}`);
     } finally {
@@ -58,8 +62,9 @@ export function FindingRetestDialog({ findingId, findingName, onClose, onStarted
           <DialogTitle>Retest vulnerability #{findingId}</DialogTitle>
           <DialogDescription className="break-words">
             {findingName ? <span className="mb-2 block">{findingName}</span> : null}
-            Retest Agent
-            Reads the original evidence and test constraints, then runs targeted verification in a separate session. When the retest completes successfully and confirms the fix, the vulnerability status automatically becomes "Fixed"; other verdicts keep the current status.
+            Retest Agent Reads the original evidence and test constraints, then runs targeted verification in a separate
+            session. When the retest completes successfully and confirms the fix, the vulnerability status automatically
+            becomes "Fixed"; other verdicts keep the current status.
           </DialogDescription>
         </DialogHeader>
         <FieldGroup>

@@ -2,8 +2,9 @@
 
 import { type ReactNode, useEffect, useState } from "react";
 
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 
+import { EngagementSelector } from "@/components/engagement-provider";
 import { Separator } from "@/components/ui/separator";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { useCurrentUser } from "@/hooks/use-current-user";
@@ -32,6 +33,7 @@ function isFullBleed(pathname: string) {
 
 export function MainContent({ children }: { children: ReactNode }) {
   const currentUser = useCurrentUser();
+  const router = useRouter();
   const pathname = usePathname();
   const [version, setVersion] = useState("");
 
@@ -41,6 +43,24 @@ export function MainContent({ children }: { children: ReactNode }) {
       .then((h) => setVersion((h.version ?? "").replace(/^v(?=\d)/, "")))
       .catch(() => setVersion(""));
   }, []);
+
+  const memberPage = ["/engagements", "/reports", "/discussion", "/account"].some(
+    (path) => pathname.replace(/\/+$/, "") === path,
+  );
+  useEffect(() => {
+    if (currentUser.role === "member" && !memberPage) router.replace("/engagements");
+  }, [currentUser.role, memberPage, router]);
+  if (currentUser.role === "error")
+    return (
+      <div role="alert" className="space-y-3 p-6">
+        <p>Unable to load account. Check backend availability.</p>
+        <button type="button" onClick={() => window.location.reload()} className="underline">
+          Retry
+        </button>
+      </div>
+    );
+  if (currentUser.role === "loading" || (currentUser.role === "member" && !memberPage))
+    return <p role="status">Loading account…</p>;
 
   if (isFullBleed(pathname)) {
     return <>{children}</>;
@@ -61,11 +81,18 @@ export function MainContent({ children }: { children: ReactNode }) {
               orientation="vertical"
               className="mx-2 data-[orientation=vertical]:h-4 data-[orientation=vertical]:self-center"
             />
-            <SearchDialog />
+            <EngagementSelector />
+            {currentUser.role === "admin" && (
+              <div className="hidden sm:block">
+                <SearchDialog />
+              </div>
+            )}
           </div>
           <div className="flex items-center gap-2">
             {version && (
-              <span className="font-medium text-muted-foreground text-xs tabular-nums">Version · {version}</span>
+              <span className="hidden font-medium text-muted-foreground text-xs tabular-nums md:inline">
+                Version · {version}
+              </span>
             )}
             <LayoutControls />
             <ThemeSwitcher />

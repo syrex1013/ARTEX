@@ -34,7 +34,7 @@ INSERT INTO skill_usage(skill,agent_key,task_id,found) VALUES
 	}
 
 	s := New(context.Background(), m, t.TempDir(), t.TempDir(), t.TempDir())
-	token, err := signJWT(s.jwtKey)
+	token, err := testSessionJWT(s)
 	if err != nil {
 		t.Fatal(err)
 	}

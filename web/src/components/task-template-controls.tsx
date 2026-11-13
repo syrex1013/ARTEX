@@ -207,7 +207,10 @@ function TaskTemplateManager({
         <SheetContent className="grid h-full w-full! max-w-none! grid-rows-[auto_minmax(0,1fr)_auto] gap-0 overflow-hidden p-0 sm:w-[48rem]! sm:max-w-[48rem]!">
           <SheetHeader className="border-b px-6 py-5">
             <SheetTitle>Task template management</SheetTitle>
-            <SheetDescription>Templates store the description, goal, category, and task-level intercept/allow rules; edits do not affect already-created tasks.</SheetDescription>
+            <SheetDescription>
+              Templates store the description, goal, category, and task-level intercept/allow rules; edits do not affect
+              already-created tasks.
+            </SheetDescription>
           </SheetHeader>
           <div className="grid min-h-0 overflow-y-auto lg:grid-cols-[15rem_minmax(0,1fr)] lg:overflow-hidden">
             <div className="flex min-h-0 flex-col border-b p-3 lg:border-r lg:border-b-0">
@@ -286,7 +289,9 @@ function TaskTemplateManager({
                       </NativeSelectOption>
                     ))}
                   </NativeSelect>
-                  <FieldDescription>This category is prefilled when the template is applied (still editable).</FieldDescription>
+                  <FieldDescription>
+                    This category is prefilled when the template is applied (still editable).
+                  </FieldDescription>
                 </Field>
                 <Field>
                   <FieldLabel>Task-level intercept / allow rules</FieldLabel>
@@ -295,7 +300,8 @@ function TaskTemplateManager({
                     onChange={(rules) => patchDraft({ interceptRules: rules })}
                   />
                   <FieldDescription>
-                    These task-level rules are prefilled when the template is applied (intercept/allow, effective only for new tasks, never global).
+                    These task-level rules are prefilled when the template is applied (intercept/allow, effective only
+                    for new tasks, never global).
                   </FieldDescription>
                 </Field>
               </FieldGroup>
@@ -498,7 +504,10 @@ export function TaskTemplateControls({
             </ComboboxList>
           </ComboboxContent>
         </Combobox>
-        <FieldDescription>Selecting copies the template's description, goal, category, and task-level rules; no link to the template is kept.</FieldDescription>
+        <FieldDescription>
+          Selecting copies the template's description, goal, category, and task-level rules; no link to the template is
+          kept.
+        </FieldDescription>
       </Field>
 
       <AlertDialog
@@ -512,7 +521,9 @@ export function TaskTemplateControls({
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Use template "{pendingTemplate?.name}"?</AlertDialogTitle>
-            <AlertDialogDescription>The description and goal already filled in will be overwritten by the template.</AlertDialogDescription>
+            <AlertDialogDescription>
+              The description and goal already filled in will be overwritten by the template.
+            </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>

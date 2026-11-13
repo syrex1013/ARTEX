@@ -84,7 +84,9 @@ export function RetestsTab({ taskId }: { taskId: string }) {
         <Card className="min-w-0">
           <CardHeader>
             <CardTitle>Select a vulnerability{data ? ` · ${data.total}` : ""}</CardTitle>
-            <CardDescription>View retest history for this task's vulnerabilities, or start a new retest.</CardDescription>
+            <CardDescription>
+              View retest history for this task's vulnerabilities, or start a new retest.
+            </CardDescription>
           </CardHeader>
           <CardContent className="flex max-h-[32rem] flex-col overflow-y-auto">
             {!loaded && !error ? <Skeleton className="h-24 w-full" /> : null}
@@ -110,7 +112,9 @@ export function RetestsTab({ taskId }: { taskId: string }) {
               <Empty>
                 <EmptyHeader>
                   <EmptyTitle>No vulnerabilities to retest</EmptyTitle>
-                  <EmptyDescription>Once this task discovers vulnerabilities, you can manually start a retest here.</EmptyDescription>
+                  <EmptyDescription>
+                    Once this task discovers vulnerabilities, you can manually start a retest here.
+                  </EmptyDescription>
                 </EmptyHeader>
               </Empty>
             ) : null}

@@ -85,7 +85,9 @@ export function FindingRetestPanel({
       <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-3">
         <div className="flex flex-col gap-1.5">
           <CardTitle>Vulnerability retest</CardTitle>
-          <CardDescription>Verifies the current state in a separate session, keeping each retest's verdict and evidence.</CardDescription>
+          <CardDescription>
+            Verifies the current state in a separate session, keeping each retest's verdict and evidence.
+          </CardDescription>
         </div>
         {running?.conversation_id != null ? (
           <Button asChild variant="outline" size="sm">
@@ -118,7 +120,9 @@ export function FindingRetestPanel({
           <Empty>
             <EmptyHeader>
               <EmptyTitle>No retest records</EmptyTitle>
-              <EmptyDescription>Once the fix is deployed, start a retest to compare new and old evidence.</EmptyDescription>
+              <EmptyDescription>
+                Once the fix is deployed, start a retest to compare new and old evidence.
+              </EmptyDescription>
             </EmptyHeader>
           </Empty>
         ) : null}
@@ -151,9 +155,7 @@ export function FindingRetestPanel({
                   <p className="whitespace-pre-wrap break-words text-destructive text-sm">{item.error}</p>
                 ) : null}
                 {item.notes ? (
-                  <p className="whitespace-pre-wrap break-words text-muted-foreground text-xs">
-                    Notes: {item.notes}
-                  </p>
+                  <p className="whitespace-pre-wrap break-words text-muted-foreground text-xs">Notes: {item.notes}</p>
                 ) : null}
                 {item.status === "completed" && item.evidence ? (
                   <details className="min-w-0">

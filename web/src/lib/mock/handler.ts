@@ -22,6 +22,7 @@ import type {
   FindingTrafficBinding,
   IntentAsset,
   ScopeRow,
+  SliverBeaconTask,
   Task,
   TaskArchive,
   TaskAssetMutation,
@@ -51,6 +52,109 @@ const mockConversations = structuredClone(D.conversations);
 const mockRetests: FindingRetest[] = [];
 const mockRetestMessages: Record<number, Activity[]> = {};
 
+// ── Sliver C2 demo state ──
+// One https listener plus one beacon ("DEMO-QUIET-TIDE", id "10") with a completed
+// and a pending task, so the tasks panel has both states to render.
+const mockSliverJobs: {
+  id: number;
+  name: string;
+  description: string;
+  protocol: string;
+  port: number;
+  domains?: string[];
+}[] = [
+  {
+    id: 1,
+    name: "HTTPS",
+    description: "https, bound on 0.0.0.0:443, using the static website demo-static",
+    protocol: "https",
+    port: 443,
+  },
+];
+let mockSliverJobSeq = 2;
+let mockSliverTaskSeq = 3;
+const mockSliverTasks: SliverBeaconTask[] = [
+  {
+    id: "1",
+    beacon_id: "10",
+    created_at: new Date(Date.now() - 300_000).toISOString(),
+    state: "completed",
+    sent_at: new Date(Date.now() - 240_000).toISOString(),
+    completed_at: new Date(Date.now() - 180_000).toISOString(),
+    description: "whoami",
+    response: "fileserver\\bob\n",
+  },
+  {
+    id: "2",
+    beacon_id: "10",
+    created_at: new Date(Date.now() - 60_000).toISOString(),
+    state: "pending",
+    sent_at: "",
+    completed_at: "",
+    description: "ipconfig /all",
+    response: "",
+  },
+];
+
+// ── Collaboration / engagements (demo) ──
+// One engagement groups the fixture tasks and findings so the engagement workspace
+// (overview / tasks / findings) renders populated under NEXT_PUBLIC_MOCK=1.
+const mockEngagement = {
+  id: 1,
+  name: "Acme Corp external test",
+  description: "Quarterly external assessment of the Acme demo environment.",
+  role: "manager" as const,
+  status: "active",
+  legacy: false,
+  starts_on: null,
+  ends_on: null,
+  settings: {},
+};
+
+function mockEngagementTasks() {
+  const items = mockTasks.map((task, index) => ({
+    id: index + 1,
+    mock_id: task.id,
+    name: task.name ?? "",
+    description: task.description,
+    goal: task.goal,
+    status: task.status,
+    created_at: task.created_at,
+  }));
+  return { items, total: items.length };
+}
+
+function mockEngagementFindings() {
+  const items = mockFindings.map((finding, index) => ({
+    id: index + 1,
+    task_id: mockTasks.findIndex((task) => task.id === finding.task_id) + 1,
+    name: finding.name ?? finding.vulnclass,
+    severity: finding.severity,
+    status: finding.status,
+    verification_status: finding.verification_status ?? "",
+    verification_note: finding.verification_note ?? "",
+    summary: finding.summary,
+    evidence: "",
+    evidence_version: finding.evidence_version ?? 0,
+  }));
+  return { items, total: items.length };
+}
+
+function mockEngagementSummary() {
+  const tasks: Record<string, number> = {};
+  for (const task of mockTasks) tasks[task.status] = (tasks[task.status] ?? 0) + 1;
+  const severity: Record<string, number> = {};
+  const findings: Record<string, number> = {};
+  const verification: Record<string, number> = {};
+  for (const finding of mockFindings) {
+    severity[finding.severity] = (severity[finding.severity] ?? 0) + 1;
+    findings[finding.status] = (findings[finding.status] ?? 0) + 1;
+    if (finding.verification_status)
+      verification[finding.verification_status] = (verification[finding.verification_status] ?? 0) + 1;
+  }
+  return { tasks, severity, findings, verification, reports: {}, approved_reports: 0, threads: 0, members: 1 };
+}
+
 // ── related traffic evidence (finding traffic) ─────────────────────────────────────────────
 // The backend stores request/response snapshots in a separate evidence table; the frontend detail page renders them with FindingTrafficPanel.
 // In the demo some findings have preset bindings whose snapshots reference mock captures (data.traffic.exchanges),
@@ -66,7 +170,9 @@ interface MockBindingSeed {
 // Preset traffic evidence per finding (finding id → bound captures). Requests are chosen to match the finding semantics,
 // so the "Related traffic" section of the demo detail page looks realistic.
 const mockFindingTrafficSeeds: Record<string, MockBindingSeed[]> = {
-  "f-1": [{ traffic_id: "x-2", role: "proof", note: "q parameter injection payload; the response echoes the MSSQL error." }],
+  "f-1": [
+    { traffic_id: "x-2", role: "proof", note: "q parameter injection payload; the response echoes the MSSQL error." },
+  ],
   "f-2": [
     { traffic_id: "x-8", role: "baseline", note: "Own order id=1001, as a normal baseline." },
     { traffic_id: "x-9", role: "proof", note: "Changing id=1002 reads another user's order without authorization." },
@@ -178,7 +284,8 @@ function advanceMockRetests() {
     if (Date.now() - Date.parse(retest.created_at) < 15000) continue;
     retest.status = "completed";
     retest.verdict = "inconclusive";
-    retest.summary = "The demo environment did not run real verification, so the finding's current status cannot be confirmed.";
+    retest.summary =
+      "The demo environment did not run real verification, so the finding's current status cannot be confirmed.";
     retest.evidence =
       "### Demo record\n\nLinked to the original finding. This environment has no real Agent connected and sent no requests to the target; run the retest in a real deployment.";
     retest.finished_at = new Date().toISOString();
@@ -275,7 +382,8 @@ function mockArchiveTask(taskID: string): MockTaskArchive {
           (archive.state === "archive_queued" || archive.state === "archiving"),
       ),
   );
-  if (dependent) throw new Error(`The task is directly inherited by unarchived task #${dependent.id} and cannot be archived yet`);
+  if (dependent)
+    throw new Error(`The task is directly inherited by unarchived task #${dependent.id} and cannot be archived yet`);
 
   const numericTaskID = mockArchiveTaskID(taskID);
   const assetIDs = mockAssets.filter((asset) => asset.task_ids.includes(numericTaskID)).map((asset) => asset.id);
@@ -358,7 +466,8 @@ function mockArchiveTask(taskID: string): MockTaskArchive {
 }
 
 function mockRestoreArchive(archive: MockTaskArchive): void {
-  if (archive.state !== "ready" && archive.state !== "restore_failed") throw new Error("the archive's current state cannot be restored");
+  if (archive.state !== "ready" && archive.state !== "restore_failed")
+    throw new Error("the archive's current state cannot be restored");
   archive.state = "restore_queued";
   archive.phase = "Waiting to restore";
   archive.progress = 0;
@@ -392,11 +501,13 @@ function mockRestoreArchive(archive: MockTaskArchive): void {
 }
 
 function mockDeleteArchive(archive: MockTaskArchive): void {
-  if (archive.state !== "ready" && archive.state !== "delete_failed") throw new Error("the archive's current state does not allow permanent deletion");
+  if (archive.state !== "ready" && archive.state !== "delete_failed")
+    throw new Error("the archive's current state does not allow permanent deletion");
   const dependent = mockTaskArchives.find(
     (candidate) => candidate.id !== archive.id && candidate.source_task_ids.includes(archive.task_id),
   );
-  if (dependent) throw new Error(`The archive is still depended on by task #${dependent.task_id} and cannot be permanently deleted`);
+  if (dependent)
+    throw new Error(`The archive is still depended on by task #${dependent.task_id} and cannot be permanently deleted`);
   archive.state = "delete_queued";
   archive.phase = "Waiting for permanent deletion";
   archive.progress = 0;
@@ -1022,7 +1133,12 @@ function route(m: string, path: string, seg: string[], q: URLSearchParams, b: Re
         label: finding.name || finding.vulnclass,
         description: `${finding.severity} · ${finding.summary}`,
       })),
-      ...D.companies.map((company) => ({ kind: "company", id: company.id, label: company.name, description: "company" })),
+      ...D.companies.map((company) => ({
+        kind: "company",
+        id: company.id,
+        label: company.name,
+        description: "company",
+      })),
       ...D.assets.map((asset) => ({
         kind: asset.type,
         id: asset.id,
@@ -1057,6 +1173,7 @@ function route(m: string, path: string, seg: string[], q: URLSearchParams, b: Re
   // ── auth: let the demo go straight to the main UI ──
   if (path === "/auth/status") return { initialized: true };
   if (path === "/auth/login" || path === "/auth/init") return { token: "mock-demo" };
+  if (path === "/auth/me") return { id: 1, username: "admin", display_name: "Demo Admin", admin: true };
   if (path === "/auth/change-password") return { ok: true };
 
   // ── task cold archives ──
@@ -1158,6 +1275,51 @@ function route(m: string, path: string, seg: string[], q: URLSearchParams, b: Re
   }
   if (seg[0] === "tasks" && seg[2] === "archive" && seg.length === 3 && m === "POST") {
     return publicMockTaskArchive(mockArchiveTask(seg[1]));
+  }
+
+  if (path === "/dashboard/tasks") {
+    const counts: Record<string, number> = {};
+    const profiles = new Map<
+      number | null,
+      {
+        llm_profile_id: number | null;
+        input_tokens: number;
+        output_tokens: number;
+        cache_read_tokens: number;
+        cache_write_tokens: number;
+        task_count: number;
+      }
+    >();
+    for (const task of mockTasks) {
+      counts[task.status] = (counts[task.status] ?? 0) + 1;
+      const key = task.llm_profile_id ?? null;
+      const row = profiles.get(key) ?? {
+        llm_profile_id: key,
+        input_tokens: 0,
+        output_tokens: 0,
+        cache_read_tokens: 0,
+        cache_write_tokens: 0,
+        task_count: 0,
+      };
+      row.input_tokens += task.tokens?.input_tokens ?? 0;
+      row.output_tokens += task.tokens?.output_tokens ?? 0;
+      row.cache_read_tokens += task.tokens?.cache_read_tokens ?? 0;
+      row.cache_write_tokens += task.tokens?.cache_write_tokens ?? 0;
+      row.task_count++;
+      profiles.set(key, row);
+    }
+    return {
+      tasks: mockTasks.slice(0, 20).map(publicMockTask),
+      total: mockTasks.length,
+      counts,
+      token_profiles: [...profiles.values()],
+      token_daily: [],
+    };
+  }
+  if (path === "/dashboard/findings") {
+    const severity: Record<string, number> = { critical: 0, high: 0, medium: 0, low: 0 };
+    for (const finding of mockFindings) severity[finding.severity] = (severity[finding.severity] ?? 0) + 1;
+    return { total: mockFindings.length, severity, recent: mockFindings.slice(0, 8) };
   }
 
   // ── tasks ──
@@ -1565,21 +1727,21 @@ function route(m: string, path: string, seg: string[], q: URLSearchParams, b: Re
       daily: [
         {
           profile_name: "default",
-          date: "2026-08-18",
+          date: new Date(Date.now() - 2 * 86_400_000).toISOString().slice(0, 10),
           input_tokens: 520000,
           output_tokens: 38000,
           cache_read_tokens: 370000,
         },
         {
           profile_name: "default",
-          date: "2026-08-19",
+          date: new Date(Date.now() - 1 * 86_400_000).toISOString().slice(0, 10),
           input_tokens: 640000,
           output_tokens: 45000,
           cache_read_tokens: 460000,
         },
         {
           profile_name: "default",
-          date: "2026-08-20",
+          date: new Date().toISOString().slice(0, 10),
           input_tokens: 410000,
           output_tokens: 27000,
           cache_read_tokens: 290000,
@@ -1655,7 +1817,8 @@ function route(m: string, path: string, seg: string[], q: URLSearchParams, b: Re
       const rules: CompanyScopeRule[] = b.scope.map((candidate, index) => {
         if (typeof candidate === "string") {
           const issue = classifyCompanyScopeLine(candidate, index + 1);
-          if (!issue.rule || issue.error) throw new Error(`Scope entry ${index + 1} is invalid: ${issue.error ?? "unrecognized"}`);
+          if (!issue.rule || issue.error)
+            throw new Error(`Scope entry ${index + 1} is invalid: ${issue.error ?? "unrecognized"}`);
           return issue.rule;
         }
         const item = candidate as { kind?: unknown; value?: unknown };
@@ -1735,7 +1898,8 @@ function route(m: string, path: string, seg: string[], q: URLSearchParams, b: Re
     }
     const ids = [...new Set(Array.isArray(b.asset_ids) ? b.asset_ids.map(Number) : [])];
     const sourceSummary = String(b.source_summary ?? "").trim();
-    if (ids.length === 0 || ids.length > 100 || !sourceSummary) throw new Error("select assets and fill in the source note");
+    if (ids.length === 0 || ids.length > 100 || !sourceSummary)
+      throw new Error("select assets and fill in the source note");
     const requestedAssets = ids.map((id) => mockAssets.find((asset) => asset.id === id));
     if (requestedAssets.some((asset) => !asset)) throw new Error("asset not found");
     const mutation: TaskAssetMutation = { requested: ids.length, attached: 0, existing: 0 };
@@ -1767,11 +1931,17 @@ function route(m: string, path: string, seg: string[], q: URLSearchParams, b: Re
     let mappings: Array<{ intentID: string; assetID: number; summary: string }> = [];
     if (seg[1] === "t-acme-web") {
       mappings = [
-        { intentID: "i3", assetID: 6, summary: "The admin feature enumeration intent was selected from the preceding subdomain finding" },
+        {
+          intentID: "i3",
+          assetID: 6,
+          summary: "The admin feature enumeration intent was selected from the preceding subdomain finding",
+        },
         { intentID: "i5", assetID: 3, summary: "The order API testing intent was selected from the API task goal" },
       ];
     } else if (seg[1] === "t-acme-api") {
-      mappings = [{ intentID: "i5", assetID: 3, summary: "The order API testing intent was selected from the API task goal" }];
+      mappings = [
+        { intentID: "i5", assetID: 3, summary: "The order API testing intent was selected from the API task goal" },
+      ];
     }
     const sourceTaskID = mockTaskAssetID(seg[1]) ?? 0;
     const assets: IntentAsset[] = mappings.flatMap((mapping) => {
@@ -1820,7 +1990,8 @@ function route(m: string, path: string, seg: string[], q: URLSearchParams, b: Re
     if (!company) throw new Error("company not found");
     const reset = b.reset === true;
     const scopeResult = mockScopeRows(company.id, b.scope, reset ? [] : (company.scope ?? []));
-    if (reset && scopeResult.invalid > 0) throw new Error("company scope contains invalid rules; the original scope was not overwritten");
+    if (reset && scopeResult.invalid > 0)
+      throw new Error("company scope contains invalid rules; the original scope was not overwritten");
     company.scope = reset ? scopeResult.rows : [...(company.scope ?? []), ...scopeResult.rows];
     return { added: scopeResult.rows.length, skipped: scopeResult.skipped, invalid: scopeResult.invalid };
   }
@@ -2223,7 +2394,11 @@ function route(m: string, path: string, seg: string[], q: URLSearchParams, b: Re
   if (path === "/settings/web-search/test") return { ok: true, count: 5, backend: D.settings.web_search_backend };
   if (path === "/settings/python/detect") return { python_interpreter: "/usr/bin/python3" };
   if (path === "/chat")
-    return { reply: "(demo) I have injected this suggestion as a high-priority intent; the work agent will execute it as soon as possible.", mode: "hint" };
+    return {
+      reply:
+        "(demo) I have injected this suggestion as a high-priority intent; the work agent will execute it as soon as possible.",
+      mode: "hint",
+    };
   if (path === "/gc") return { removed: 0 };
 
   // ── Tool execution history ──
@@ -2392,7 +2567,10 @@ function route(m: string, path: string, seg: string[], q: URLSearchParams, b: Re
   if (path === "/skills" && m === "POST") return { name: String(b.name ?? "new-skill") };
   if (seg[0] === "skills" && seg[2] === "files" && seg.length === 3) return { files: ["SKILL.md"] };
   if (seg[0] === "skills" && seg[2] === "files" && seg.length >= 4)
-    return { content: "# SKILL.md\n\n(demo) This is a sample description file for this skill.", file: seg.slice(3).join("/") };
+    return {
+      content: "# SKILL.md\n\n(demo) This is a sample description file for this skill.",
+      file: seg.slice(3).join("/"),
+    };
 
   // ── visibility ──
   if (seg[0] === "visibility" && m === "GET") return { agents: [] };
@@ -2429,8 +2607,10 @@ function route(m: string, path: string, seg: string[], q: URLSearchParams, b: Re
   if (path === "/intercept/history" || (seg[0] === "intercept" && seg[1] === "task")) {
     const status = q.get("status") || "";
     const decisionSource = q.get("decision_source") || "";
-    if (status && !["pending", "allowed", "denied", "timeout"].includes(status)) throw new Error("invalid approval status");
-    if (decisionSource && !["model", "rule", "unknown"].includes(decisionSource)) throw new Error("invalid decision source");
+    if (status && !["pending", "allowed", "denied", "timeout"].includes(status))
+      throw new Error("invalid approval status");
+    if (decisionSource && !["model", "rule", "unknown"].includes(decisionSource))
+      throw new Error("invalid decision source");
     const decidedBy = q.get("decided_by") || "";
     if (decidedBy && !["human", "rule", "model", "system"].includes(decidedBy)) throw new Error("invalid decided_by");
     const filtered = mockInterceptHistory.filter((row) => {
@@ -2482,6 +2662,156 @@ function route(m: string, path: string, seg: string[], q: URLSearchParams, b: Re
   if (seg.at(-1) === "side-questions") {
     if (m === "GET") return { items: [], current: null, next_cursor: 0, snapshot: null };
     if (m === "POST") throw new Error("demo mode does not support side questions");
+  }
+
+  // ── Collaboration / engagements (demo: one engagement wrapping the fixture tasks) ──
+  // Roles/summary mirror the real backend projections in server/collaboration.go.
+  if (seg[0] === "collab" && seg[1] === "engagements") {
+    if (seg.length === 2 && m === "GET") return [mockEngagement];
+    if (Number(seg[2]) !== mockEngagement.id) throw new Error("engagement not found");
+    if (seg[3] === "summary" && m === "GET") return mockEngagementSummary();
+    if (seg[3] === "tasks" && m === "GET") return mockEngagementTasks();
+    if (seg[3] === "findings" && m === "GET") return mockEngagementFindings();
+    if (seg[3] === "audit" && m === "GET") return [];
+  }
+
+  // ── Sliver C2 (demo: one fake server, two sessions, one beacon, one listener) ──
+  // Status matches the contract in server/sliver.go: configured/connected flags plus
+  // host/port/operator once a config exists.
+  const mockSliverStatus = {
+    configured: true,
+    connected: true,
+    host: "c2.demo.local",
+    port: 8888,
+    operator: "artex",
+  };
+  if (path === "/sliver" && m === "GET") return mockSliverStatus;
+  if (path === "/sliver" && m === "PUT") {
+    try {
+      JSON.parse(String(b.operator_config ?? ""));
+    } catch {
+      throw new Error("invalid operator config: not valid JSON");
+    }
+    return mockSliverStatus;
+  }
+  if (path === "/sliver" && m === "DELETE") return { ok: true };
+  if (path === "/sliver/sessions" && m === "GET") {
+    return {
+      sessions: [
+        {
+          id: "1",
+          name: "DEMO-BEARD-CHAIR",
+          hostname: "workstation-01",
+          username: "alice",
+          uid: "S-1-5-21-1001",
+          os: "windows",
+          arch: "amd64",
+          transport: "mtls",
+          remote_address: "10.20.30.41:52311",
+          pid: 4321,
+          filename: "beard_chair.exe",
+          last_checkin: new Date(Date.now() - 30_000).toISOString(),
+          active_c2: "mtls://c2.demo.local:8888",
+          version: "Microsoft Windows 11 Pro 22631",
+        },
+        {
+          id: "2",
+          name: "DEMO-CLOUD-DESK",
+          hostname: "bastion",
+          username: "svc-backup",
+          uid: "1002",
+          os: "linux",
+          arch: "amd64",
+          transport: "http",
+          remote_address: "198.51.100.7:49822",
+          pid: 765,
+          filename: "/tmp/.backup",
+          last_checkin: new Date(Date.now() - 120_000).toISOString(),
+          active_c2: "http://c2.demo.local:8080",
+          version: "Ubuntu 22.04.4 LTS",
+        },
+      ],
+    };
+  }
+  if (path === "/sliver/beacons" && m === "GET") {
+    return {
+      beacons: [
+        {
+          id: "10",
+          name: "DEMO-QUIET-TIDE",
+          hostname: "fileserver",
+          username: "bob",
+          uid: "S-1-5-21-1003",
+          os: "windows",
+          arch: "amd64",
+          transport: "dns",
+          remote_address: "10.20.30.42:53413",
+          pid: 2210,
+          filename: "quiet_tide.exe",
+          last_checkin: new Date(Date.now() - 45_000).toISOString(),
+          active_c2: "dns://tunnel.demo.local",
+          version: "Microsoft Windows Server 2019 17763",
+          interval: 60,
+          next_checkin: new Date(Date.now() + 15_000).toISOString(),
+          reconnect_interval: 0,
+        },
+      ],
+    };
+  }
+  if (seg[0] === "sliver" && seg[1] === "beacons" && seg[3] === "tasks" && m === "GET") {
+    if (seg[2] !== "10") throw new Error("beacon not found");
+    return { tasks: mockSliverTasks };
+  }
+  if (path === "/sliver/jobs" && m === "GET") return { jobs: mockSliverJobs };
+  if (path === "/sliver/jobs" && m === "POST") {
+    const port = Number(b.port) || 0;
+    if (!port) throw new Error("port is required");
+    const type = String(b.type ?? "");
+    if (!["mtls", "http", "https", "dns", "wg"].includes(type)) throw new Error(`unknown listener type ${type}`);
+    const host = String(b.host ?? "0.0.0.0");
+    const domains = Array.isArray(b.domains) ? (b.domains as string[]) : [];
+    const job = {
+      id: mockSliverJobSeq++,
+      name: type.toUpperCase(),
+      description: `${type}, bound on ${host}:${port}${domains.length ? `, domains: ${domains.join(", ")}` : ""}`,
+      protocol: type,
+      port,
+      ...(domains.length ? { domains } : {}),
+    };
+    mockSliverJobs.push(job);
+    return { job_id: job.id, type, host, port };
+  }
+  if (seg[0] === "sliver" && seg[1] === "jobs" && seg.length === 3 && m === "DELETE") {
+    const id = Number(seg[2]);
+    const idx = mockSliverJobs.findIndex((j) => j.id === id);
+    if (idx < 0) throw new Error("job not found");
+    mockSliverJobs.splice(idx, 1);
+    return { id, success: true };
+  }
+  if (path === "/sliver/interact" && m === "POST") {
+    const argv = Array.isArray(b.argv) ? (b.argv as string[]).map(String) : [];
+    if (argv.length === 0) throw new Error("argv is required");
+    if (b.beacon_id) {
+      // Beacons submit asynchronously: record a pending task, empty output (poll /tasks).
+      mockSliverTasks.unshift({
+        id: String(mockSliverTaskSeq++),
+        beacon_id: String(b.beacon_id),
+        created_at: new Date().toISOString(),
+        state: "pending",
+        sent_at: "",
+        completed_at: "",
+        description: argv.join(" "),
+        response: "",
+      });
+      return { status: "", pid: 0, stdout: "", stderr: "", beacon: true };
+    }
+    return {
+      status: "0",
+      pid: 4321,
+      stdout: `demo:${argv[0]} ran on session ${String(b.session_id ?? "?")}\n`,
+      stderr: "",
+      beacon: false,
+    };
   }
 
   // ── Write fallback: succeed without persisting ──

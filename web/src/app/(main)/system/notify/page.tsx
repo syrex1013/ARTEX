@@ -73,7 +73,7 @@ export default function NotifyPage() {
         setBaseURL(m.public_base_url);
         setDigestMin(m.digest_interval_min);
       })
-      .catch((e) => toast.error("Failed to load notification settings: " + (e as Error).message));
+      .catch((e) => toast.error(`Failed to load notification settings: ${(e as Error).message}`));
     // The two render limits are not part of /notify/meta; they are only exposed through /api/settings.
     api
       .settings()
@@ -87,7 +87,7 @@ export default function NotifyPage() {
     api
       .notifyChannels()
       .then(setChannels)
-      .catch((e) => toast.error("Failed to load channels: " + (e as Error).message));
+      .catch((e) => toast.error(`Failed to load channels: ${(e as Error).message}`));
   }, []);
   React.useEffect(() => {
     load();
@@ -212,7 +212,7 @@ export default function NotifyPage() {
       }
       load();
     } catch (e) {
-      toast.error("Save failed: " + (e as Error).message);
+      toast.error(`Save failed: ${(e as Error).message}`);
     } finally {
       setSaving(false);
     }
@@ -226,7 +226,7 @@ export default function NotifyPage() {
       toast.success(`Test message sent (${r.latency_ms} ms); check the group to confirm`);
     } catch (e) {
       // The backend relays the raw error returned by the channel verbatim — the only clue for debugging the config — so show it as-is.
-      toast.error("Test failed: " + (e as Error).message, { duration: 12000 });
+      toast.error(`Test failed: ${(e as Error).message}`, { duration: 12000 });
     } finally {
       setTesting(false);
     }
@@ -239,7 +239,7 @@ export default function NotifyPage() {
       setOpen(false);
       load();
     } catch (e) {
-      toast.error("Delete failed: " + (e as Error).message);
+      toast.error(`Delete failed: ${(e as Error).message}`);
     }
   }
 
@@ -248,7 +248,7 @@ export default function NotifyPage() {
       await api.notifyUpdateChannel(ch.id, { enabled: !ch.enabled });
       load();
     } catch (e) {
-      toast.error("Operation failed: " + (e as Error).message);
+      toast.error(`Operation failed: ${(e as Error).message}`);
     }
   }
 
@@ -259,7 +259,7 @@ export default function NotifyPage() {
       setMeta((m) => (m ? { ...m, enabled: on } : m));
       toast.success(on ? "Push enabled" : "Push paused");
     } catch (e) {
-      toast.error("Operation failed: " + (e as Error).message);
+      toast.error(`Operation failed: ${(e as Error).message}`);
     } finally {
       setGlobalSaving(false);
     }
@@ -287,7 +287,7 @@ export default function NotifyPage() {
       toast.success("Saved");
       load();
     } catch (e) {
-      toast.error("Save failed: " + (e as Error).message);
+      toast.error(`Save failed: ${(e as Error).message}`);
     } finally {
       setGlobalSaving(false);
     }
@@ -301,9 +301,10 @@ export default function NotifyPage() {
     <div className="flex flex-1 flex-col gap-4 md:gap-6">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-xl font-semibold tracking-tight">Notifications</h1>
+          <h1 className="font-semibold text-xl tracking-tight">Notifications</h1>
           <p className="text-muted-foreground text-sm">
-            Push findings to DingTalk / Feishu / WeCom and other channels · each channel has its own delivery timing and filter rules
+            Push findings to DingTalk / Feishu / WeCom and other channels · each channel has its own delivery timing and
+            filter rules
           </p>
         </div>
         {meta && (
@@ -350,7 +351,9 @@ export default function NotifyPage() {
               value={baseURL}
               onChange={(e) => setBaseURL(e.target.value)}
             />
-            <p className="text-muted-foreground text-xs">The address the "View details" button in messages points to. Leave empty to omit the button.</p>
+            <p className="text-muted-foreground text-xs">
+              The address the "View details" button in messages points to. Leave empty to omit the button.
+            </p>
           </div>
           <div className="grid gap-2">
             <Label htmlFor="n-digest">Digest interval (minutes)</Label>
@@ -379,7 +382,7 @@ export default function NotifyPage() {
               aria-invalid={limitInvalid(summaryMax, SUMMARY_LIMIT_MAX)}
             />
             <p className="text-muted-foreground text-xs">
-              Longest finding summary shown in a message, 0–{SUMMARY_LIMIT_MAX}. 0 = no truncation.
+              Longest finding summary shown in a message, 0-{SUMMARY_LIMIT_MAX}. 0 = no truncation.
             </p>
           </div>
           <div className="grid gap-2">
@@ -396,7 +399,7 @@ export default function NotifyPage() {
               aria-invalid={limitInvalid(assetsMax, ASSETS_LIMIT_MAX)}
             />
             <p className="text-muted-foreground text-xs">
-              Most asset names listed for a finding, 0–{ASSETS_LIMIT_MAX}. 0 = no truncation (all assets listed).
+              Most asset names listed for a finding, 0-{ASSETS_LIMIT_MAX}. 0 = no truncation (all assets listed).
             </p>
           </div>
           <div className="sm:col-span-2">
@@ -418,7 +421,7 @@ export default function NotifyPage() {
             <button
               type="button"
               onClick={openAdd}
-              className="text-foreground/70 border-foreground/70 hover:bg-muted/60 hover:shadow-sm flex min-h-[130px] flex-col items-center justify-center gap-2 rounded-xl border border-dashed transition"
+              className="flex min-h-[130px] flex-col items-center justify-center gap-2 rounded-xl border border-foreground/70 border-dashed text-foreground/70 transition hover:bg-muted/60 hover:shadow-sm"
             >
               <PlusIcon className="size-6" />
               <span className="text-sm">Add channel</span>
@@ -428,11 +431,11 @@ export default function NotifyPage() {
               <Card
                 key={ch.id}
                 onClick={() => openEdit(ch)}
-                className="hover:border-primary/60 cursor-pointer gap-3 transition hover:shadow-sm"
+                className="cursor-pointer gap-3 transition hover:border-primary/60 hover:shadow-sm"
               >
                 <CardHeader>
                   <div className="flex items-center gap-2">
-                    <BellIcon className="text-muted-foreground size-4 shrink-0" />
+                    <BellIcon className="size-4 shrink-0 text-muted-foreground" />
                     <CardTitle className="truncate text-base">{ch.name}</CardTitle>
                     {/* The whole card is clickable (opens the editor), so these two controls must each swallow the bubbling click,
                         otherwise toggling/deleting would also trigger editing. stopPropagation hangs off the controls themselves
@@ -514,7 +517,8 @@ export default function NotifyPage() {
                 </Select>
                 {editing && (
                   <p className="text-muted-foreground text-xs">
-                    The channel type cannot be changed — a different type means a different set of credentials; create a new channel instead.
+                    The channel type cannot be changed: a different type means a different set of credentials; create a
+                    new channel instead.
                   </p>
                 )}
               </div>
@@ -531,7 +535,8 @@ export default function NotifyPage() {
 
               {fields.length === 0 ? (
                 <p className="text-muted-foreground text-sm">
-                  The form for this channel type is not defined yet (the frontend is missing a CHANNEL_FIELDS entry); add it and retry.
+                  The form for this channel type is not defined yet (the frontend is missing a CHANNEL_FIELDS entry);
+                  add it and retry.
                 </p>
               ) : (
                 fields.map((d) => (
@@ -557,7 +562,8 @@ export default function NotifyPage() {
                   </SelectContent>
                 </Select>
                 <p className="text-muted-foreground text-xs">
-                  For "realtime for High, digest for the rest", create two channels: one realtime with a High threshold, one digest with no severity limit.
+                  For "realtime for High, digest for the rest", create two channels: one realtime with a High threshold,
+                  one digest with no severity limit.
                 </p>
               </div>
 
@@ -572,12 +578,13 @@ export default function NotifyPage() {
                   onChange={(e) => setF({ ratePerMin: e.target.value })}
                 />
                 <p className="text-muted-foreground text-xs">
-                  Leave empty to use the channel default; 0 means no limit. Going over the limit never drops messages, only delays them.
+                  Leave empty to use the channel default; 0 means no limit. Going over the limit never drops messages,
+                  only delays them.
                 </p>
               </div>
 
               <div className="border-t pt-4">
-                <p className="mb-3 text-sm font-medium">Filter rules (empty = no filtering)</p>
+                <p className="mb-3 font-medium text-sm">Filter rules (empty = no filtering)</p>
                 <div className="grid gap-4">
                   <div className="grid gap-2">
                     <Label>Minimum severity</Label>
@@ -617,7 +624,9 @@ export default function NotifyPage() {
                       value={form.excludeText}
                       onChange={(e) => setF({ excludeText: e.target.value })}
                     />
-                    <p className="text-muted-foreground text-xs">Exclusion beats inclusion: an item matching both is excluded.</p>
+                    <p className="text-muted-foreground text-xs">
+                      Exclusion beats inclusion: an item matching both is excluded.
+                    </p>
                   </div>
                   <div className="grid gap-2">
                     <Label htmlFor="n-tasks">Restrict to task IDs</Label>
@@ -636,7 +645,9 @@ export default function NotifyPage() {
                       value={form.assetIDsText}
                       onChange={(e) => setF({ assetIDsText: e.target.value })}
                     />
-                    <p className="text-muted-foreground text-xs">Empty task/asset = no restriction; when filled, the finding must intersect them.</p>
+                    <p className="text-muted-foreground text-xs">
+                      Empty task/asset = no restriction; when filled, the finding must intersect them.
+                    </p>
                   </div>
                   <div className="flex items-center gap-2 text-sm">
                     <Switch

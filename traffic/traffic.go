@@ -135,12 +135,13 @@ const TrafficSearchDescription = "Query the target traffic the recording proxy h
 
 // Traffic runs the recording proxy and owns the file tree + index.
 type Traffic struct {
-	dir   string
-	addr  string
-	db    *sql.DB
-	wmu   sync.Mutex // serializes record() vs DeleteHost (incl. blob GC)
-	seq   atomic.Int64
-	proxy *mproxy.Proxy
+	journalMode string
+	dir         string
+	addr        string
+	db          *sql.DB
+	wmu         sync.Mutex // serializes record() vs DeleteHost (incl. blob GC)
+	seq         atomic.Int64
+	proxy       *mproxy.Proxy
 	// fts reports whether the full-text index is available. False on a driver
 	// build without FTS5: recording and metadata search still work, body search
 	// degrades to unsupported rather than erroring.
@@ -186,16 +187,23 @@ func Open(dir, addr string) (*Traffic, error) {
 	// The driver splits the DSN at the first '?', so a data directory containing
 	// one would silently name a different file; that path falls back to a bare
 	// DSN, where initIndex still applies the pragmas to its own connection.
+	journalMode := strings.ToUpper(strings.TrimSpace(os.Getenv("ARTEX_TRAFFIC_JOURNAL_MODE")))
+	if journalMode == "" {
+		journalMode = "WAL"
+	}
+	if journalMode != "WAL" && journalMode != "DELETE" {
+		return nil, fmt.Errorf("ARTEX_TRAFFIC_JOURNAL_MODE must be WAL or DELETE")
+	}
 	index := filepath.Join(dir, "_index", "index.sqlite")
 	dsn := index
 	if !strings.ContainsRune(index, '?') {
-		dsn = "file:" + index + "?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)"
+		dsn = "file:" + index + "?_pragma=busy_timeout(5000)&_pragma=journal_mode(" + journalMode + ")"
 	}
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, err
 	}
-	t := &Traffic{dir: dir, addr: addr, db: db, closed: make(chan struct{})}
+	t := &Traffic{dir: dir, addr: addr, db: db, closed: make(chan struct{}), journalMode: journalMode}
 	if err := t.initIndex(); err != nil {
 		db.Close()
 		return nil, err
@@ -256,7 +264,11 @@ func (t *Traffic) initIndex() error {
 	// Re-applied rather than left to the DSN so the bare-DSN fallback in Open is
 	// still correct: journal_mode persists in the file header, which is what every
 	// later connection reads.
-	for _, p := range []string{`PRAGMA journal_mode=WAL`, `PRAGMA busy_timeout=5000`} {
+	journalMode := t.journalMode
+	if journalMode == "" {
+		journalMode = "WAL"
+	}
+	for _, p := range []string{`PRAGMA journal_mode=` + journalMode, `PRAGMA busy_timeout=5000`} {
 		if _, err := conn.ExecContext(ctx, p); err != nil {
 			return err
 		}

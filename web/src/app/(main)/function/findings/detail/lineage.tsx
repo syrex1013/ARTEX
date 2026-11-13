@@ -34,18 +34,13 @@ export function FindingLineageView({ findingId }: { findingId: string }) {
 
   if (loaded && nodes.length === 0) {
     return (
-      <p className="text-muted-foreground p-6 text-sm">
+      <p className="p-6 text-muted-foreground text-sm">
         No lineage to display (this vulnerability is not linked to an exploration node, or its task has been deleted).
       </p>
     );
   }
 
   return (
-    <ExplorationGraph
-      nodes={nodes}
-      edges={edges}
-      className="h-[68vh]"
-      emptyHint={loaded ? "No lineage" : "Loading…"}
-    />
+    <ExplorationGraph nodes={nodes} edges={edges} className="h-[68vh]" emptyHint={loaded ? "No lineage" : "Loading…"} />
   );
 }

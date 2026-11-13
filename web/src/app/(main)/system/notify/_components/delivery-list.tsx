@@ -8,7 +8,9 @@ import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { api } from "@/lib/api";
 import { statusMeta, toneClasses } from "@/lib/status";
@@ -32,7 +34,7 @@ export function DeliveryList({ channels }: { channels: NotificationChannel[] }) 
         setRows(r.deliveries);
         setTotal(r.total);
       })
-      .catch((e) => toast.error("Failed to load delivery records: " + (e as Error).message))
+      .catch((e) => toast.error(`Failed to load delivery records: ${(e as Error).message}`))
       .finally(() => setLoading(false));
   }, [channelID, state, page]);
   React.useEffect(() => {
@@ -45,7 +47,7 @@ export function DeliveryList({ channels }: { channels: NotificationChannel[] }) 
       toast.success("Re-queued");
       load();
     } catch (e) {
-      toast.error("Retry failed: " + (e as Error).message);
+      toast.error(`Retry failed: ${(e as Error).message}`);
     }
   }
 
@@ -95,7 +97,7 @@ export function DeliveryList({ channels }: { channels: NotificationChannel[] }) 
         <Button size="sm" variant="outline" onClick={load} disabled={loading}>
           <RefreshCwIcon className={loading ? "animate-spin" : ""} /> Refresh
         </Button>
-        <span className="text-muted-foreground ml-auto text-xs">{total} in total</span>
+        <span className="ml-auto text-muted-foreground text-xs">{total} in total</span>
       </div>
 
       <Card className="py-0">
@@ -114,14 +116,27 @@ export function DeliveryList({ channels }: { channels: NotificationChannel[] }) 
           <TableBody>
             {rows.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={7} className="text-muted-foreground py-8 text-center">
-                  {loading ? "Loading…" : "No delivery records"}
+                <TableCell colSpan={7} className="py-8 text-center">
+                  {loading ? (
+                    <div className="mx-auto flex max-w-sm flex-col gap-2">
+                      <Skeleton className="h-4 w-full" />
+                      <Skeleton className="h-4 w-4/5" />
+                      <Skeleton className="h-4 w-3/5" />
+                    </div>
+                  ) : (
+                    <Empty>
+                      <EmptyHeader>
+                        <EmptyTitle>No delivery records</EmptyTitle>
+                        <EmptyDescription>Deliveries will appear here once notifications are sent.</EmptyDescription>
+                      </EmptyHeader>
+                    </Empty>
+                  )}
                 </TableCell>
               </TableRow>
             ) : (
               rows.map((d) => (
                 <TableRow key={d.id}>
-                  <TableCell className="text-muted-foreground text-xs whitespace-nowrap">
+                  <TableCell className="whitespace-nowrap text-muted-foreground text-xs">
                     {formatTime(d.created_at)}
                   </TableCell>
                   <TableCell>
@@ -144,7 +159,7 @@ export function DeliveryList({ channels }: { channels: NotificationChannel[] }) 
                     </Badge>
                   </TableCell>
                   <TableCell className="text-muted-foreground text-sm">{d.attempts}</TableCell>
-                  <TableCell className="text-muted-foreground max-w-md text-xs break-all">{d.last_error}</TableCell>
+                  <TableCell className="max-w-md break-all text-muted-foreground text-xs">{d.last_error}</TableCell>
                   <TableCell>
                     {/* Only failed/skipped items get a retry button: re-sending a delivered one would duplicate the push. */}
                     {(d.state === "failed" || d.state === "skipped") && (

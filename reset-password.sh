@@ -144,9 +144,18 @@ SQL=$(cat <<SQL
 \\set ON_ERROR_STOP on
 \\getenv newpw ARTEX_RESET_NEWPASS
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
+BEGIN;
 INSERT INTO settings(key, value)
 VALUES ('$PASS_KEY', crypt(:'newpw', gen_salt('bf', $BCRYPT_COST)))
 ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now();
+DO \$\$
+BEGIN
+ IF to_regclass('local_users') IS NOT NULL THEN
+  UPDATE local_users SET password_hash=(SELECT value FROM settings WHERE key='$PASS_KEY'),enabled=true WHERE username='ARTEX' AND admin;
+  UPDATE user_sessions SET revoked_at=now() WHERE user_id IN (SELECT id FROM local_users WHERE username='ARTEX' AND admin) AND revoked_at IS NULL;
+ END IF;
+END \$\$;
+COMMIT;
 SQL
 )
 

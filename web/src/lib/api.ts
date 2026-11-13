@@ -16,8 +16,6 @@ import type {
   Asset,
   AssetInterceptRule,
   AssetInterceptRuleInput,
-  TaskCredential,
-  TaskCredentialInput,
   Audit,
   BatchCategoryItem,
   BatchControlItem,
@@ -78,6 +76,13 @@ import type {
   Severity,
   SkillCall,
   SkillItem,
+  SliverBeacon,
+  SliverBeaconTask,
+  SliverInteractResult,
+  SliverJob,
+  SliverJobSpec,
+  SliverSession,
+  SliverStatus,
   SSProject,
   SSTask,
   Stats,
@@ -88,6 +93,8 @@ import type {
   TaskAssetScopeMutation,
   TaskCategory,
   TaskConstraint,
+  TaskCredential,
+  TaskCredentialInput,
   TaskGoal,
   TaskLLMResolutions,
   TaskNode,
@@ -112,6 +119,16 @@ function getToken(): string | null {
   return localStorage.getItem("artex_token");
 }
 
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    public readonly status: number,
+  ) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
 export async function http<T>(path: string, init?: RequestInit): Promise<T> {
   if (MOCK) return mockHandle<T>(init?.method ?? "GET", path, init?.body ?? null);
   const token = getToken();
@@ -129,7 +146,7 @@ export async function http<T>(path: string, init?: RequestInit): Promise<T> {
       document.cookie = "artex_token=; path=/; max-age=0";
       window.location.href = "/login";
     }
-    throw new Error("Unauthorized");
+    throw new ApiError("Unauthorized", 401);
   }
   if (!r.ok) {
     const fallback = `${init?.method ?? "GET"} ${path}: ${r.status}`;
@@ -142,7 +159,7 @@ export async function http<T>(path: string, init?: RequestInit): Promise<T> {
     } catch {
       // Keep the status-based fallback for empty or non-JSON error responses.
     }
-    throw new Error(message);
+    throw new ApiError(message, r.status);
   }
   if (r.status === 204) return undefined as T;
   return r.json();
@@ -252,6 +269,7 @@ export const api = {
     get<{ tasks: Task[]; active: string }>("/tasks").then((r) => ({ tasks: arr(r.tasks), active: r.active ?? "" })),
   task: (id: string) => get<Task>(`/tasks/${encodeURIComponent(id)}`),
   createTask: (input: {
+    engagementId?: number;
     name?: string;
     categoryId?: number;
     description: string;
@@ -273,6 +291,7 @@ export const api = {
       goal: input.goal,
       llm_profile_ids: input.llmProfileIds ?? [],
       source_task_ids: input.sourceTaskIds ?? [],
+      engagement_id: input.engagementId ?? (Number(localStorage.getItem("artex_engagement")) || undefined),
       company_ids: input.companyIds ?? [],
       timeout_seconds: input.timeoutSeconds ?? 0,
       seed_first_intent: input.seedFirstIntent ?? false,
@@ -835,8 +854,7 @@ export const api = {
   // Channels are multi-instance resources (several bots of the same kind, each with its own
   // filter rules), so they form their own group instead of the flat settings key/value store.
   notifyMeta: () => get<NotificationMeta>(`/notify/meta`),
-  notifyChannels: () =>
-    get<{ channels: NotificationChannel[] }>(`/notify/channels`).then((r) => arr(r.channels)),
+  notifyChannels: () => get<{ channels: NotificationChannel[] }>(`/notify/channels`).then((r) => arr(r.channels)),
   notifyCreateChannel: (payload: {
     name: string;
     kind: string;
@@ -887,9 +905,15 @@ export const api = {
       `/chat/mentions?${new URLSearchParams({ kind, q: query, cursor })}`,
       { signal },
     ),
+  // 202 responses: {status:"queued", position} when the main agent is busy, {status:"accepted", mode:"llm"} otherwise; 200 rule-mode replies carry the reply text.
   chat: (message: string, task?: string, attachments?: ChatAttachment[], seg?: number) =>
-    post<{ reply: string; mode: string }>(`/chat${tq(task)}`, { message, attachments, seg }),
-  chatStatus: (taskId: string) => get<{ running: boolean }>(`/tasks/${taskId}/chat/status`),
+    post<
+      { status: "queued"; position: number } | { status: "accepted"; mode: string } | { reply: string; mode: string }
+    >(`/chat${tq(task)}`, { message, attachments, seg }),
+  chatStatus: (taskId: string) =>
+    get<{ running: boolean; queue?: { id: number; message: string }[] }>(`/tasks/${taskId}/chat/status`),
+  // Removes one queued chat message before it launches; the persisted human turn stays in the transcript.
+  cancelQueuedTaskChat: (taskId: string, qid: number) => del<{ ok: boolean }>(`/tasks/${taskId}/chat/queue/${qid}`),
   // Option 1, file upload: lands in the session/task working directory uploads/, returning a relative path the agent can Read.
   chatUpload: async (scope: "task" | "session" | "staging", id: string, files: File[]) => {
     if (MOCK)
@@ -1031,22 +1055,34 @@ export const api = {
     post<{ items: { id: number; ok: boolean; error?: string }[] }>("/conversations/delete/batch", { ids }),
   // Incremental tail: steps after `since` (id ASC) — live poll + post-send fetch.
   conversationMessages: (id: number, since = 0) =>
-    get<{ items: Activity[]; cursor: number; running: boolean }>(`/conversations/${id}/messages?since=${since}`).then(
-      (r) => ({ items: arr(r.items), cursor: r.cursor ?? 0, running: !!r.running }),
-    ),
+    get<{ items: Activity[]; cursor: number; running: boolean; queued?: number }>(
+      `/conversations/${id}/messages?since=${since}`,
+    ).then((r) => ({ items: arr(r.items), cursor: r.cursor ?? 0, running: !!r.running, queued: r.queued ?? 0 })),
   // Reverse pagination: the latest `limit` steps (before=0) or the page of older
   // steps ending before id `before`. hasMore = still-older steps exist.
   conversationHistory: (id: number, before = 0, limit = 200) => {
     const q = new URLSearchParams({ limit: String(limit) });
     if (before > 0) q.set("before", String(before));
-    return get<{ items: Activity[]; cursor: number; running: boolean; hasMore: boolean }>(
+    return get<{ items: Activity[]; cursor: number; running: boolean; queued?: number; hasMore: boolean }>(
       `/conversations/${id}/messages?${q.toString()}`,
-    ).then((r) => ({ items: arr(r.items), cursor: r.cursor ?? 0, running: !!r.running, hasMore: !!r.hasMore }));
+    ).then((r) => ({
+      items: arr(r.items),
+      cursor: r.cursor ?? 0,
+      running: !!r.running,
+      queued: r.queued ?? 0,
+      hasMore: !!r.hasMore,
+    }));
   },
   conversationMsgDetail: (id: number, seq: number) =>
     get<{ detail: string }>(`/conversations/${id}/messages/${seq}`).then((r) => r.detail ?? ""),
   sendConversationMessage: (id: number, message: string, attachments?: ChatAttachment[]) =>
-    post<{ status: string }>(`/conversations/${id}/messages`, { message, attachments }),
+    post<{ status: "queued"; position: number } | { status: "accepted" }>(`/conversations/${id}/messages`, {
+      message,
+      attachments,
+    }),
+  // Removes one queued chat-page message before it launches; the persisted human turn stays in the transcript.
+  cancelQueuedConversationMessage: (id: number, qid: number) =>
+    del<{ ok: boolean }>(`/conversations/${id}/queue/${qid}`),
   stopConversation: (id: number) => post<{ status: string }>(`/conversations/${id}/stop`, {}),
   saveAgentPrompt: (key: string, template: string, note = "") =>
     put<{ version: number }>(`/agents/${key}/prompt`, { template, note }),
@@ -1315,4 +1351,19 @@ export const api = {
   // ledger, exact per call, covering per-agent bindings / pooling / interrupted spend).
   tokensByModel: (task: string) =>
     get<{ models: ModelTokenStat[] }>(`/llm/records/by-model?task=${encodeURIComponent(task)}`),
+
+  // ---- Sliver C2 ----
+  sliverStatus: () => get<SliverStatus>("/sliver"),
+  sliverSaveConfig: (operatorConfig: string) => put<SliverStatus>("/sliver", { operator_config: operatorConfig }),
+  sliverRemoveConfig: () => del<{ ok: boolean }>("/sliver"),
+  sliverSessions: () => get<{ sessions: SliverSession[] }>("/sliver/sessions").then((r) => arr(r.sessions)),
+  sliverBeacons: () => get<{ beacons: SliverBeacon[] }>("/sliver/beacons").then((r) => arr(r.beacons)),
+  sliverBeaconTasks: (id: string) =>
+    get<{ tasks: SliverBeaconTask[] }>(`/sliver/beacons/${encodeURIComponent(id)}/tasks`).then((r) => arr(r.tasks)),
+  sliverJobs: () => get<{ jobs: SliverJob[] }>("/sliver/jobs").then((r) => arr(r.jobs)),
+  sliverStartListener: (spec: SliverJobSpec) =>
+    post<{ job_id: number; type: string; host: string; port: number }>("/sliver/jobs", spec),
+  sliverKillJob: (id: number) => del<{ id: number; success: boolean }>(`/sliver/jobs/${id}`),
+  sliverInteract: (target: { session_id?: string; beacon_id?: string }, argv: string[]) =>
+    post<SliverInteractResult>("/sliver/interact", { ...target, argv }),
 };

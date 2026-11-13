@@ -22,10 +22,10 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
+import { ApprovalExecutionFocus, useApprovalFocus, useApprovalHistory } from "@/components/approval-execution-focus";
 import { MentionTextarea } from "@/components/mention-textarea";
 import { SideQuestionButton, SideQuestionWorkspace } from "@/components/side-question-workspace";
 import { TodoPopover } from "@/components/todo-popover";
-import { ApprovalExecutionFocus, useApprovalFocus, useApprovalHistory } from "@/components/approval-execution-focus";
 import { Transcript } from "@/components/transcript";
 import {
   AlertDialog,
@@ -76,7 +76,7 @@ function fmtTokens(n: number): string {
 }
 
 // fmtDuration renders an elapsed milliseconds span compactly (90s → 1m30s).
-function fmtDuration(ms: number): string {
+function _fmtDuration(ms: number): string {
   const s = Math.floor(ms / 1000);
   if (s < 60) return `${s}s`;
   const m = Math.floor(s / 60);
@@ -135,8 +135,8 @@ function groupByAgent(conversations: Conversation[], agentByKey: Map<string, Age
 // console — shown while a turn is streaming.
 function LiveBadge() {
   return (
-    <span className="inline-flex items-center gap-1 rounded bg-blue-500/15 px-1.5 py-0.5 text-[10px] font-medium text-blue-600 dark:text-blue-400">
-      <span className="size-1 animate-pulse rounded-full bg-blue-500" />
+    <span className="inline-flex items-center gap-1 rounded bg-tone-info/15 px-1.5 py-0.5 font-medium text-[10px] text-tone-info">
+      <span className="size-1 animate-pulse rounded-full bg-tone-info" />
       Live
     </span>
   );
@@ -159,6 +159,7 @@ function Composer({
   onRemoveAttachment,
   uploading,
   allowBtw,
+  queuedCount,
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -175,6 +176,7 @@ function Composer({
   onRemoveAttachment?: (path: string) => void;
   uploading?: boolean;
   allowBtw?: boolean;
+  queuedCount?: number;
 }) {
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const atts = attachments ?? [];
@@ -254,6 +256,14 @@ function Composer({
             <ArrowUpIcon />
           </Button>
         )}
+        {(queuedCount ?? 0) > 0 && (
+          <span
+            className="inline-flex items-center rounded bg-tone-info/15 px-1.5 py-0.5 font-medium text-[10px] text-tone-info"
+            title="Messages waiting for the current turn to finish"
+          >
+            {queuedCount} queued
+          </span>
+        )}
         {running ? (
           // while a run is in flight the send button becomes a stop button —
           // aborts just this session (the trigger queue keeps going).
@@ -298,7 +308,7 @@ function LLMProfileRow({
 
   return (
     <div className="flex min-w-0 shrink-0 items-center gap-1 px-1 pt-0.5 pb-1">
-      <ZapIcon className="text-muted-foreground/50 size-3 shrink-0" />
+      <ZapIcon className="size-3 shrink-0 text-muted-foreground/50" />
       <span className="truncate text-muted-foreground/70 text-xs" title={label}>
         {label}
       </span>
@@ -314,7 +324,7 @@ function LLMProfileRow({
           </button>
         </PopoverTrigger>
         <PopoverContent align="start" className="w-64 p-1">
-          <p className="text-muted-foreground px-2 py-1 text-[11px] font-medium">Select an LLM profile</p>
+          <p className="px-2 py-1 font-medium text-[11px] text-muted-foreground">Select an LLM profile</p>
           {/* default option */}
           <button
             type="button"
@@ -329,7 +339,7 @@ function LLMProfileRow({
           >
             <span className="text-sm">Default{activeDefault ? ` (${activeDefault.name})` : ""}</span>
             {activeDefault && (
-              <span className="text-muted-foreground text-[11px]">
+              <span className="text-[11px] text-muted-foreground">
                 {activeDefault.format} · {activeDefault.model}
               </span>
             )}
@@ -348,7 +358,7 @@ function LLMProfileRow({
               )}
             >
               <span className="text-sm">{p.name}</span>
-              <span className="text-muted-foreground text-[11px]">
+              <span className="text-[11px] text-muted-foreground">
                 {p.format} · {p.model}
               </span>
             </button>
@@ -395,7 +405,7 @@ function DraftChat({
       await api.sendConversationMessage(c.id, msg);
       onStarted(c);
     } catch (e) {
-      toast.error("Send failed: " + (e as Error).message);
+      toast.error(`Send failed: ${(e as Error).message}`);
       setSending(false);
     }
   }
@@ -413,7 +423,7 @@ function DraftChat({
       const r = await api.chatUpload("session", `conv-${c.id}`, files);
       onStarted(c, { input, attachments: r.attachments });
     } catch (e) {
-      toast.error("Upload failed: " + (e as Error).message);
+      toast.error(`Upload failed: ${(e as Error).message}`);
       setUploading(false);
     }
   }
@@ -447,11 +457,11 @@ function DraftChat({
     <>
       {/* empty / landing state fills the panel */}
       <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 px-4 text-center">
-        <div className="bg-primary/10 flex size-12 items-center justify-center rounded-full">
-          <Bot className="text-primary size-6" />
+        <div className="flex size-12 items-center justify-center rounded-full bg-primary/10">
+          <Bot className="size-6 text-primary" />
         </div>
-        <div className="text-sm font-medium">Start a conversation with "{agent?.name ?? "Agent"}"</div>
-        {agent?.description && <p className="text-muted-foreground max-w-md text-xs">{agent.description}</p>}
+        <div className="font-medium text-sm">Start a conversation with "{agent?.name ?? "Agent"}"</div>
+        {agent?.description && <p className="max-w-md text-muted-foreground text-xs">{agent.description}</p>}
       </div>
 
       <Composer
@@ -497,6 +507,7 @@ function ChatView({
   const approvalFocus = useApprovalFocus({ conversationId: conv.id });
   const [messages, setMessages] = React.useState<Activity[]>([]);
   const [running, setRunning] = React.useState(false);
+  const [queuedCount, setQueuedCount] = React.useState(0);
   const [input, setInput] = React.useState(initial?.input ?? "");
   const [sending, setSending] = React.useState(false);
   const [stopping, setStopping] = React.useState(false);
@@ -518,7 +529,7 @@ function ChatView({
       await api.updateConversationProfile(conv.id, id);
       onConvUpdated();
     } catch (e) {
-      toast.error("Failed to switch LLM: " + (e as Error).message);
+      toast.error(`Failed to switch LLM: ${(e as Error).message}`);
     }
   }
 
@@ -547,6 +558,7 @@ function ChatView({
     setMessages([]);
     setHistoryLoaded(false);
     setRunning(false);
+    setQueuedCount(0);
     let live = true;
     api
       .conversationHistory(conv.id, 0, HISTORY_PAGE)
@@ -558,6 +570,7 @@ function ChatView({
         hasMoreRef.current = r.hasMore;
         setHasMore(r.hasMore);
         setRunning((current) => current || r.running);
+        setQueuedCount(r.queued);
         setHistoryLoaded(true);
       })
       .catch(() => {
@@ -590,7 +603,9 @@ function ChatView({
           setMessages((prev) => mergeActivities(prev, r.items));
         }
         cursorRef.current = Math.max(cursorRef.current, r.cursor);
-        keepPolling = r.running;
+        setQueuedCount(r.queued);
+        // Keep polling while the queue drains even if the current turn already ended.
+        keepPolling = r.running || r.queued > 0;
         setRunning(r.running);
         if (!r.running) onTitleMaybeChanged(); // first-turn auto-title landed
       } catch {
@@ -607,14 +622,23 @@ function ChatView({
     };
   }, [running, conv.id, onTitleMaybeChanged]);
 
-  const loadFocusPage = React.useCallback((before: number) => api.conversationHistory(conv.id, before, HISTORY_PAGE), [conv.id]);
+  const loadFocusPage = React.useCallback(
+    (before: number) => api.conversationHistory(conv.id, before, HISTORY_PAGE),
+    [conv.id],
+  );
   const mergeFocusPage = React.useCallback((page: { items: Activity[]; hasMore: boolean }) => {
     setMessages((prev) => mergeActivities(page.items, prev));
     earliestRef.current = page.items[0]?.seq ?? earliestRef.current;
     hasMoreRef.current = page.hasMore;
     setHasMore(page.hasMore);
   }, []);
-  const focusHistory = useApprovalHistory(approvalFocus.state?.source, historyLoaded, messages, loadFocusPage, mergeFocusPage);
+  const focusHistory = useApprovalHistory(
+    approvalFocus.state?.source,
+    historyLoaded,
+    messages,
+    loadFocusPage,
+    mergeFocusPage,
+  );
 
   // ---- transcript auto-scroll (open → bottom; stick to bottom unless scrolled up) ----
   const contentRef = React.useRef<HTMLDivElement | null>(null);
@@ -716,7 +740,7 @@ function ChatView({
       const r = await api.chatUpload("session", `conv-${conv.id}`, files);
       setAttachments((prev) => [...prev, ...r.attachments]);
     } catch (e) {
-      toast.error("Upload failed: " + (e as Error).message);
+      toast.error(`Upload failed: ${(e as Error).message}`);
     } finally {
       setUploading(false);
     }
@@ -731,12 +755,13 @@ function ChatView({
     setInput("");
     setAttachments([]);
     try {
-      await api.sendConversationMessage(conv.id, msg, atts.length ? atts : undefined);
+      const r = await api.sendConversationMessage(conv.id, msg, atts.length ? atts : undefined);
       // The live loop pulls the persisted human turn immediately. Sharing that
       // fetch avoids racing a separate post-send request against the poller.
+      if (r.status === "queued") toast.info("Queued — will run when the current turn finishes");
       setRunning(true);
     } catch (e) {
-      toast.error("Send failed: " + (e as Error).message);
+      toast.error(`Send failed: ${(e as Error).message}`);
       setInput(msg); // restore so the user doesn't lose their text
       setAttachments(atts); // and their attachments
     } finally {
@@ -753,7 +778,7 @@ function ChatView({
     try {
       await api.stopConversation(conv.id);
     } catch (e) {
-      toast.error("Stop failed: " + (e as Error).message);
+      toast.error(`Stop failed: ${(e as Error).message}`);
     } finally {
       setStopping(false);
     }
@@ -763,20 +788,20 @@ function ChatView({
     <SideQuestionWorkspace side={side} label={agent?.name ?? conv.agent_key} composerLayout="inline">
       {/* header: which agent + live + token meta */}
       <div className="flex min-w-0 flex-wrap items-center gap-2 border-b px-4 py-2.5">
-        <Bot className="text-muted-foreground size-4 shrink-0" />
-        <span className="min-w-0 max-w-48 truncate text-sm font-medium">{agent?.name ?? conv.agent_key}</span>
-        <span className="text-muted-foreground hidden shrink-0 font-mono text-xs sm:inline">{conv.agent_key}</span>
+        <Bot className="size-4 shrink-0 text-muted-foreground" />
+        <span className="min-w-0 max-w-48 truncate font-medium text-sm">{agent?.name ?? conv.agent_key}</span>
+        <span className="hidden shrink-0 font-mono text-muted-foreground text-xs sm:inline">{conv.agent_key}</span>
         {agent && !agent.builtin && (
           <Badge variant="outline" className="shrink-0 px-1.5 py-0 text-[10px]">
             Custom
           </Badge>
         )}
         {agent?.description && (
-          <span className="text-muted-foreground min-w-0 truncate text-xs">{agent.description}</span>
+          <span className="min-w-0 truncate text-muted-foreground text-xs">{agent.description}</span>
         )}
         {running && <LiveBadge />}
         <SideQuestionButton side={side} />
-        <div className="text-muted-foreground ml-auto flex min-w-0 max-w-full items-center justify-end gap-x-3 gap-y-1 text-xs max-sm:w-full max-sm:flex-wrap">
+        <div className="ml-auto flex min-w-0 max-w-full items-center justify-end gap-x-3 gap-y-1 text-muted-foreground text-xs max-sm:w-full max-sm:flex-wrap">
           {tokenTotal.turns > 0 && (
             <span title="Agent loop turns (model calls)" className="tabular-nums">
               {tokenTotal.turns} turns
@@ -793,18 +818,26 @@ function ChatView({
       <ApprovalExecutionFocus focus={approvalFocus} history={focusHistory} />
 
       {/* messages */}
-      <ScrollArea type="auto" className="min-h-0 min-w-0 flex-1 [&_[data-slot=scroll-area-viewport]>div]:block!">
+      <ScrollArea type="auto" className="[&_[data-slot=scroll-area-viewport]>div]:block! min-h-0 min-w-0 flex-1">
         <div className="min-w-0 max-w-full px-4 py-3" ref={contentRef}>
           {messages.length === 0 && !running ? (
-            <div className="text-muted-foreground py-10 text-center text-sm">
+            <div className="py-10 text-center text-muted-foreground text-sm">
               Start a conversation with "{agent?.name ?? conv.agent_key}"
             </div>
           ) : (
             <>
               {hasMore && (
-                <div className="text-muted-foreground/70 pb-2 text-center text-[11px]">Scroll up to load earlier messages…</div>
+                <div className="pb-2 text-center text-[11px] text-muted-foreground/70">
+                  Scroll up to load earlier messages…
+                </div>
               )}
-              <Transcript activity={messages} live={running} chat fetchDetail={fetchDetail} focusedSeq={focusHistory.ready ? approvalFocus.state?.source?.seq : undefined} />
+              <Transcript
+                activity={messages}
+                live={running}
+                chat
+                fetchDetail={fetchDetail}
+                focusedSeq={focusHistory.ready ? approvalFocus.state?.source?.seq : undefined}
+              />
             </>
           )}
         </div>
@@ -816,10 +849,15 @@ function ChatView({
         onSend={send}
         disabled={running || sending}
         allowBtw
-        placeholder={running ? "Agent is replying; type /btw to ask a side question…" : "Type a message, @ to reference records, Enter to send"}
+        placeholder={
+          running
+            ? "Agent is replying; type /btw to ask a side question…"
+            : "Type a message, @ to reference records, Enter to send"
+        }
         running={running}
         onStop={stop}
         stopDisabled={stopping}
+        queuedCount={queuedCount}
         attachments={attachments}
         onPickFiles={pickFiles}
         onRemoveAttachment={(path) => setAttachments((p) => p.filter((x) => x.path !== path))}
@@ -917,7 +955,7 @@ const ConversationItem = React.memo(function ConversationItem({
               onCancelRename();
             }
           }}
-          className="border-input bg-background min-w-0 flex-1 rounded-md border px-2 py-1 text-sm"
+          className="min-w-0 flex-1 rounded-md border border-input bg-background px-2 py-1 text-sm"
         />
       ) : (
         <button
@@ -928,7 +966,7 @@ const ConversationItem = React.memo(function ConversationItem({
           className="min-w-0 flex-1 rounded-md px-2 py-1.5 text-left"
         >
           <div className="flex min-w-0 items-center gap-1.5">
-            {pinned && <PinIcon className="text-primary size-3 shrink-0" aria-label="Pinned" />}
+            {pinned && <PinIcon className="size-3 shrink-0 text-primary" aria-label="Pinned" />}
             <div className="truncate text-sm">{conv.title || "New conversation"}</div>
             {conv.running ? (
               <Badge variant="secondary" className="shrink-0 gap-1" title="Agent is running">
@@ -937,7 +975,7 @@ const ConversationItem = React.memo(function ConversationItem({
               </Badge>
             ) : null}
           </div>
-          <div className="text-muted-foreground flex min-w-0 items-center gap-1 text-[11px]">
+          <div className="flex min-w-0 items-center gap-1 text-[11px] text-muted-foreground">
             {showAgent && (
               <>
                 <Bot className="size-3 shrink-0" />
@@ -962,7 +1000,7 @@ const ConversationItem = React.memo(function ConversationItem({
           <Button
             variant="ghost"
             size="icon-sm"
-            className="text-muted-foreground shrink-0"
+            className="shrink-0 text-muted-foreground"
             aria-label={`Manage conversation "${conv.title || "New conversation"}"`}
           >
             <MoreHorizontalIcon />
@@ -1050,15 +1088,18 @@ export default function ChatPage() {
   const [selectedId, setSelectedId] = React.useState<number | null>(null);
   const [sourceRequested, setSourceRequested] = React.useState(false);
   const [convsLoaded, setConvsLoaded] = React.useState(false);
-  const selectConversation = React.useCallback((id: number | null) => {
-    if (id !== selectedId) {
-      const url = new URL(window.location.href);
-      url.searchParams.delete("approval");
-      setSourceRequested(false);
-      window.history.replaceState(null, "", url);
-    }
-    setSelectedId(id);
-  }, [selectedId]);
+  const selectConversation = React.useCallback(
+    (id: number | null) => {
+      if (id !== selectedId) {
+        const url = new URL(window.location.href);
+        url.searchParams.delete("approval");
+        setSourceRequested(false);
+        window.history.replaceState(null, "", url);
+      }
+      setSelectedId(id);
+    },
+    [selectedId],
+  );
 
   const [renamingId, setRenamingId] = React.useState<number | null>(null);
   const [renameText, setRenameText] = React.useState("");
@@ -1085,7 +1126,10 @@ export default function ChatPage() {
     const seq = ++conversationListSeq.current;
     try {
       const items = await api.conversations();
-      if (seq === conversationListSeq.current) { setConvs(items); setConvsLoaded(true); }
+      if (seq === conversationListSeq.current) {
+        setConvs(items);
+        setConvsLoaded(true);
+      }
     } catch {
       // Preserve the selected transcript and list on a transient poll failure.
     }
@@ -1265,7 +1309,7 @@ export default function ChatPage() {
         });
         void reloadConvs();
       } catch (e) {
-        toast.error("Delete failed: " + (e as Error).message);
+        toast.error(`Delete failed: ${(e as Error).message}`);
       }
     },
     [reloadConvs],
@@ -1338,7 +1382,7 @@ export default function ChatPage() {
         await api.renameConversation(id, title);
         void reloadConvs();
       } catch (e) {
-        toast.error("Rename failed: " + (e as Error).message);
+        toast.error(`Rename failed: ${(e as Error).message}`);
       }
     },
     [reloadConvs],
@@ -1352,7 +1396,7 @@ export default function ChatPage() {
     >
       <div className="grid min-h-0 min-w-0 flex-1 grid-cols-1 grid-rows-[minmax(10rem,15rem)_minmax(0,1fr)] gap-3 md:grid-cols-[18rem_minmax(0,1fr)] md:grid-rows-[minmax(0,1fr)] md:gap-4">
         {/* left: conversation list */}
-        <div className="bg-card flex flex-col overflow-hidden rounded-lg border">
+        <div className="flex flex-col overflow-hidden rounded-lg border bg-card">
           <div className="flex flex-col gap-2 border-b p-2">
             <Button size="sm" className="w-full" onClick={() => selectConversation(null)}>
               <PlusIcon /> New conversation
@@ -1386,7 +1430,7 @@ export default function ChatPage() {
                     aria-label="Select all conversations matching the current filter"
                     disabled={filteredConversations.length === 0 || bulkDeleting}
                   />
-                  <span className="text-muted-foreground min-w-0 flex-1 text-xs tabular-nums">
+                  <span className="min-w-0 flex-1 text-muted-foreground text-xs tabular-nums">
                     {selectedConversationCount > 0 ? `${selectedConversationCount} selected` : conversationCountLabel}
                   </span>
                   {selectedConversationCount > 0 && (
@@ -1406,7 +1450,7 @@ export default function ChatPage() {
                 </div>
               ) : (
                 <div className="flex items-center gap-2 px-1">
-                  <span className="text-muted-foreground min-w-0 flex-1 text-xs tabular-nums">
+                  <span className="min-w-0 flex-1 text-muted-foreground text-xs tabular-nums">
                     {conversationCountLabel}
                   </span>
                   <Button
@@ -1425,11 +1469,11 @@ export default function ChatPage() {
           <ScrollArea
             key={agentFilter === null ? "all" : `agent:${agentFilter}`}
             type="auto"
-            className="min-h-0 min-w-0 flex-1 [&_[data-slot=scroll-area-viewport]>div]:block!"
+            className="[&_[data-slot=scroll-area-viewport]>div]:block! min-h-0 min-w-0 flex-1"
           >
             <div className="flex min-w-0 flex-col gap-0.5 p-2">
               {filteredConversations.length === 0 && (
-                <p className="text-muted-foreground px-2 py-6 text-center text-xs">
+                <p className="px-2 py-6 text-center text-muted-foreground text-xs">
                   {agentFilter === null ? "No conversations yet" : "No conversations for this agent"}
                 </p>
               )}
@@ -1504,7 +1548,7 @@ export default function ChatPage() {
         </div>
 
         {/* right: chat view */}
-        <div className="bg-card flex min-w-0 flex-col overflow-hidden rounded-lg border">
+        <div className="flex min-w-0 flex-col overflow-hidden rounded-lg border bg-card">
           {selected ? (
             <ChatView
               key={selected.id}
@@ -1516,7 +1560,7 @@ export default function ChatPage() {
               onConvUpdated={reloadConvs}
             />
           ) : sourceRequested ? (
-            <div role="status" className="p-6 text-sm text-muted-foreground">
+            <div role="status" className="p-6 text-muted-foreground text-sm">
               {convsLoaded ? "The conversation has been deleted" : "Loading the conversation…"}
             </div>
           ) : (
@@ -1546,7 +1590,9 @@ export default function ChatPage() {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Delete {selectedConversationCount} selected conversations?</AlertDialogTitle>
-            <AlertDialogDescription>Conversation messages and execution records will be deleted with them. This action cannot be undone.</AlertDialogDescription>
+            <AlertDialogDescription>
+              Conversation messages and execution records will be deleted with them. This action cannot be undone.
+            </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={bulkDeleting}>Cancel</AlertDialogCancel>

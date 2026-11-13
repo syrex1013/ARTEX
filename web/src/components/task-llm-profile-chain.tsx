@@ -136,7 +136,9 @@ export function TaskLLMProfileChain({
       </Combobox>
 
       {value.length === 0 ? (
-        <p className="text-muted-foreground text-xs">When no profile is set, the task follows the agent or the global active profile.</p>
+        <p className="text-muted-foreground text-xs">
+          When no profile is set, the task follows the agent or the global active profile.
+        </p>
       ) : (
         <div className="flex flex-col divide-y rounded-lg border">
           {value.map((id, index) => {

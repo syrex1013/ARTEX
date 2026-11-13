@@ -41,7 +41,7 @@ func newGateServer(t *testing.T) *gateServer {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	s := New(ctx, m, t.TempDir(), t.TempDir(), t.TempDir())
-	token, err := signJWT(s.jwtKey)
+	token, err := testSessionJWT(s)
 	if err != nil {
 		t.Fatal(err)
 	}

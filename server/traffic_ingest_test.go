@@ -30,7 +30,7 @@ func ingestServer(t *testing.T) (*Server, func(method, path, body string) *httpt
 	s := New(ctx, m, t.TempDir(), t.TempDir(), t.TempDir())
 	s.archiveWG.Wait()
 	<-s.side.done
-	token, err := signJWT(s.jwtKey)
+	token, err := testSessionJWT(s)
 	if err != nil {
 		t.Fatal(err)
 	}

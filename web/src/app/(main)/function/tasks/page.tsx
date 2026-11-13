@@ -33,13 +33,13 @@ import {
   PinOffIcon,
   PlayIcon,
   PlusIcon,
-  TrashIcon,
   SaveIcon,
   SearchIcon,
   SlidersHorizontalIcon,
   StarIcon,
   TagsIcon,
   Trash2Icon,
+  TrashIcon,
   Undo2Icon,
   XIcon,
 } from "lucide-react";
@@ -124,7 +124,6 @@ import { getLocalStorageValue, setLocalStorageValue } from "@/lib/local-storage.
 import { type SortDirection, useStoredSortPreference } from "@/lib/sort-preference";
 import type {
   AssetInterceptRuleInput,
-  TaskCredentialInput,
   ChatAttachment,
   Company,
   DeleteTaskOptions,
@@ -134,6 +133,7 @@ import type {
   TaskArchive,
   TaskArchiveState,
   TaskCategory,
+  TaskCredentialInput,
   TaskStatus,
 } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -168,8 +168,8 @@ const MAX_SOURCE_TASKS = 8;
 
 // fmtTokens renders a compact token count (1234 → 1.2k, 2_000_000 → 2M).
 function fmtTokens(n: number): string {
-  if (n >= 1_000_000) return (n / 1_000_000).toFixed(n >= 10_000_000 ? 0 : 1) + "M";
-  if (n >= 1000) return (n / 1000).toFixed(n >= 10000 ? 0 : 1) + "k";
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(n >= 10_000_000 ? 0 : 1)}M`;
+  if (n >= 1000) return `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}k`;
   return String(n);
 }
 
@@ -212,7 +212,8 @@ function deleteDetails(result: DeleteCounts): string[] {
   if (result.traffic_deleted > 0) details.push(`Deleted ${result.traffic_deleted} traffic records`);
   if (result.files_deleted) details.push("Deleted task files");
   if (result.findings_deleted > 0) details.push(`Deleted ${result.findings_deleted} findings`);
-  if (result.llm_records_deleted > 0) details.push(`Deleted ${result.llm_records_deleted} LLM request/response records`);
+  if (result.llm_records_deleted > 0)
+    details.push(`Deleted ${result.llm_records_deleted} LLM request/response records`);
   return details;
 }
 
@@ -532,13 +533,15 @@ export default function TasksPage() {
       try {
         const result = await api.deleteTask(id, options);
         if (result.cleanup_warning) {
-          toast.warning(`${deleteSummary(result)}; some external data cleanup did not finish: ${result.cleanup_warning}`);
+          toast.warning(
+            `${deleteSummary(result)}; some external data cleanup did not finish: ${result.cleanup_warning}`,
+          );
         } else {
           toast.success(deleteSummary(result));
         }
         load();
       } catch (e) {
-        toast.error("Delete failed: " + (e as Error).message);
+        toast.error(`Delete failed: ${(e as Error).message}`);
         throw e;
       }
     },
@@ -653,7 +656,7 @@ export default function TasksPage() {
           return next;
         });
         const details = deleteDetails(total);
-        const summary = `Deleted ${deleted.length} tasks` + (details.length > 0 ? ` (${details.join(", ")})` : "");
+        const summary = `Deleted ${deleted.length} tasks${details.length > 0 ? ` (${details.join(", ")})` : ""}`;
         if (warnings.length > 0) {
           toast.warning(`${summary}; some external data cleanup did not finish: ${warnings.join("; ")}`);
         } else {
@@ -790,7 +793,7 @@ export default function TasksPage() {
           <CardContent className="flex flex-col gap-4 px-0 pt-6">
             <div className="flex flex-wrap items-center gap-2 px-4 lg:px-6">
               <div className="relative w-full sm:max-w-xs">
-                <SearchIcon className="text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2" />
+                <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
                   placeholder="Search description / goal / ID"
                   value={query}
@@ -802,7 +805,7 @@ export default function TasksPage() {
                     type="button"
                     onClick={() => setQuery("")}
                     aria-label="Clear search"
-                    className="text-muted-foreground hover:text-foreground absolute top-1/2 right-2 -translate-y-1/2"
+                    className="absolute top-1/2 right-2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
                   >
                     <XIcon className="size-4" />
                   </button>
@@ -915,11 +918,11 @@ export default function TasksPage() {
             </div>
 
             {tasks.length === 0 ? (
-              <div className="text-muted-foreground mx-4 flex items-center justify-center rounded-lg border border-dashed py-20 text-sm lg:mx-6">
+              <div className="mx-4 flex items-center justify-center rounded-lg border border-dashed py-20 text-muted-foreground text-sm lg:mx-6">
                 No tasks yet. Click "New task" at the top right to start.
               </div>
             ) : filtered.length === 0 ? (
-              <div className="text-muted-foreground mx-4 flex items-center justify-center rounded-lg border border-dashed py-20 text-sm lg:mx-6">
+              <div className="mx-4 flex items-center justify-center rounded-lg border border-dashed py-20 text-muted-foreground text-sm lg:mx-6">
                 No matching tasks.
               </div>
             ) : (
@@ -953,7 +956,7 @@ export default function TasksPage() {
                     />
                     <TableHead className="text-center">Goal progress</TableHead>
                     <TableHead className="text-center" title="Critical / High / Medium / Low">
-                      Findings <span className="text-muted-foreground font-normal">C/H/M/L</span>
+                      Findings <span className="font-normal text-muted-foreground">C/H/M/L</span>
                     </TableHead>
                     <TableHead className="text-center">Running workers</TableHead>
                     <SortableTaskHead
@@ -1048,7 +1051,8 @@ function SortableTaskHead({
   if (active) ariaSort = direction === "asc" ? "ascending" : "descending";
 
   let actionLabel = `Sort by ${label} descending`;
-  if (active) actionLabel = `${label} is currently ${direction === "asc" ? "ascending" : "descending"}; click to toggle sort direction`;
+  if (active)
+    actionLabel = `${label} is currently ${direction === "asc" ? "ascending" : "descending"}; click to toggle sort direction`;
 
   return (
     <TableHead className={className} aria-sort={ariaSort}>
@@ -1095,7 +1099,11 @@ function ConcurrencySettingsDialog() {
     setSaving(true);
     try {
       await api.setSettings({ task_concurrency_enabled: enabled, task_concurrency_limit: nextLimit });
-      toast.success(enabled ? `Concurrency limit enabled: at most ${nextLimit} tasks can run simultaneously` : "Task concurrency limit disabled");
+      toast.success(
+        enabled
+          ? `Concurrency limit enabled: at most ${nextLimit} tasks can run simultaneously`
+          : "Task concurrency limit disabled",
+      );
       setOpen(false);
     } catch (error) {
       toast.error(`Save failed: ${(error as Error).message}`);
@@ -1115,7 +1123,8 @@ function ConcurrencySettingsDialog() {
         <DialogHeader>
           <DialogTitle>Task concurrency limit</DialogTitle>
           <DialogDescription>
-            Limit how many tasks can run simultaneously. Once the limit is reached, new tasks queue in creation order and start automatically as slots free up.
+            Limit how many tasks can run simultaneously. Once the limit is reached, new tasks queue in creation order
+            and start automatically as slots free up.
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-5 py-2">
@@ -1189,16 +1198,16 @@ const TaskRow = React.memo(function TaskRow({
         />
       </TableCell>
       <TableCell>
-        <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-xs">{task.id}</code>
+        <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">{task.id}</code>
       </TableCell>
       <TableCell className="font-medium">
         <div className="flex max-w-xs items-center gap-2">
           <TaskNameEditor task={task} onRename={onRename} />
           {task.active && <StarIcon className="size-4 shrink-0 fill-amber-400 text-amber-400" />}
-          {taskIsPinned(task) && <PinIcon className="text-primary size-4 shrink-0" aria-label="Pinned" />}
+          {taskIsPinned(task) && <PinIcon className="size-4 shrink-0 text-primary" aria-label="Pinned" />}
         </div>
       </TableCell>
-      <TableCell className="text-muted-foreground max-w-40">
+      <TableCell className="max-w-40 text-muted-foreground">
         <Link
           href={`/function/tasks/detail?id=${encodeURIComponent(task.id)}`}
           className="block truncate rounded-sm hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -1207,13 +1216,13 @@ const TaskRow = React.memo(function TaskRow({
           {task.description}
         </Link>
       </TableCell>
-      <TableCell className="text-muted-foreground max-w-40 truncate" title={task.goal}>
+      <TableCell className="max-w-40 truncate text-muted-foreground" title={task.goal}>
         {task.goal}
       </TableCell>
       <TableCell>
         <StatusBadge domain="task" value={task.status} dot />
       </TableCell>
-      <TableCell className="text-muted-foreground text-center text-xs tabular-nums">
+      <TableCell className="text-center text-muted-foreground text-xs tabular-nums">
         {typeof task.goals_total === "number" && task.goals_total > 0 ? (
           `${task.goals_met}/${task.goals_total}`
         ) : (
@@ -1225,11 +1234,9 @@ const TaskRow = React.memo(function TaskRow({
           const f = task.findings;
           const total = f ? f.critical + f.high + f.medium + f.low : 0;
           if (!f || total === 0) return <span className="text-muted-foreground">0</span>;
-          const seg = (n: number, cls: string) => (
-            <span className={n > 0 ? cls : "text-muted-foreground"}>{n}</span>
-          );
+          const seg = (n: number, cls: string) => <span className={n > 0 ? cls : "text-muted-foreground"}>{n}</span>;
           return (
-            <span className="font-medium whitespace-nowrap" title="Critical / High / Medium / Low">
+            <span className="whitespace-nowrap font-medium" title="Critical / High / Medium / Low">
               {seg(f.critical, "text-rose-600 dark:text-rose-400")}
               <span className="text-muted-foreground">/</span>
               {seg(f.high, "text-red-600 dark:text-red-400")}
@@ -1243,15 +1250,15 @@ const TaskRow = React.memo(function TaskRow({
       </TableCell>
       <TableCell className="text-center text-xs tabular-nums">
         {task.in_flight && task.in_flight > 0 ? (
-          <span className="text-foreground font-medium">{task.in_flight}</span>
+          <span className="font-medium text-foreground">{task.in_flight}</span>
         ) : (
           <span className="text-muted-foreground">0</span>
         )}
       </TableCell>
-      <TableCell className="text-muted-foreground text-right text-xs whitespace-nowrap tabular-nums">
+      <TableCell className="whitespace-nowrap text-right text-muted-foreground text-xs tabular-nums">
         {fmtDateTime(task.created_unix)}
       </TableCell>
-      <TableCell className="text-right text-xs whitespace-nowrap tabular-nums">
+      <TableCell className="whitespace-nowrap text-right text-xs tabular-nums">
         {(() => {
           const secs = taskDuration(task, nowSec);
           if (secs <= 0) return <span className="text-muted-foreground">—</span>;
@@ -1263,7 +1270,7 @@ const TaskRow = React.memo(function TaskRow({
         })()}
       </TableCell>
       <TableCell
-        className="text-right text-xs whitespace-nowrap tabular-nums"
+        className="whitespace-nowrap text-right text-xs tabular-nums"
         title={
           task.tokens
             ? `Input ${task.tokens.input_tokens} · Cache ${task.tokens.cache_read_tokens} · Output ${task.tokens.output_tokens}`
@@ -1493,7 +1500,8 @@ function ArchiveConfirmDialog({
         <AlertDialogHeader>
           <AlertDialogTitle>{count === 1 ? "Archive task" : `Archive ${count} tasks`}</AlertDialogTitle>
           <AlertDialogDescription className="[overflow-wrap:anywhere]">
-            Archiving stops task scheduling and compresses the graph, LLM history, files, and exclusive assets and traffic into local cold storage. Once archived, a task can be restored from "Archived".
+            Archiving stops task scheduling and compresses the graph, LLM history, files, and exclusive assets and
+            traffic into local cold storage. Once archived, a task can be restored from "Archived".
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
@@ -1620,7 +1628,8 @@ function ArchiveDeleteDialog({
         <AlertDialogHeader>
           <AlertDialogTitle>Permanently delete {archives.length} task archives?</AlertDialogTitle>
           <AlertDialogDescription className="[overflow-wrap:anywhere]">
-            About {formatArchiveBytes(bytes)} of archive packages and {rows.toLocaleString()} related data snapshots will be permanently deleted. This action cannot be undone.
+            About {formatArchiveBytes(bytes)} of archive packages and {rows.toLocaleString()} related data snapshots
+            will be permanently deleted. This action cannot be undone.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
@@ -1916,7 +1925,7 @@ function TaskArchivesPanel({ onChanged }: { onChanged: () => void }) {
                         <span className="truncate font-medium">
                           {archive.task_name || archive.task_description || `Task #${archive.task_id}`}
                         </span>
-                        <span className="text-muted-foreground truncate text-xs">
+                        <span className="truncate text-muted-foreground text-xs">
                           #{archive.task_id} · {archive.task_description}
                         </span>
                       </div>
@@ -1925,7 +1934,7 @@ function TaskArchivesPanel({ onChanged }: { onChanged: () => void }) {
                       <StatusBadge domain="task" value={archive.original_status} dot />
                     </TableCell>
                     <TableCell className="text-muted-foreground">{archive.category_name || "Uncategorized"}</TableCell>
-                    <TableCell className="text-muted-foreground whitespace-nowrap text-xs">
+                    <TableCell className="whitespace-nowrap text-muted-foreground text-xs">
                       {archiveDate(archive.archived_at || archive.requested_at)}
                     </TableCell>
                     <TableCell
@@ -1984,7 +1993,12 @@ function TaskArchivesPanel({ onChanged }: { onChanged: () => void }) {
                             archives={[archive]}
                             onConfirm={() => deleteMany([archive])}
                             trigger={
-                              <Button size="icon" variant="ghost" aria-label="Permanently delete archive" title="Permanently delete">
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                aria-label="Permanently delete archive"
+                                title="Permanently delete"
+                              >
                                 <Trash2Icon />
                               </Button>
                             }
@@ -2077,7 +2091,10 @@ function DeleteOptionFields({
           />
           <FieldContent>
             <FieldLabel htmlFor={`delete-all-${idPrefix}`}>Delete all</FieldLabel>
-            <FieldDescription>Check every related data type below, including assets, traffic, files, findings, and LLM request/response records.</FieldDescription>
+            <FieldDescription>
+              Check every related data type below, including assets, traffic, files, findings, and LLM request/response
+              records.
+            </FieldDescription>
           </FieldContent>
         </Field>
         <Field orientation="horizontal">
@@ -2088,7 +2105,9 @@ function DeleteOptionFields({
           />
           <FieldContent>
             <FieldLabel htmlFor={`delete-assets-${idPrefix}`}>Related assets</FieldLabel>
-            <FieldDescription>Delete assets that belong only to this task; shared assets are only detached from the current task.</FieldDescription>
+            <FieldDescription>
+              Delete assets that belong only to this task; shared assets are only detached from the current task.
+            </FieldDescription>
           </FieldContent>
         </Field>
         <Field orientation="horizontal">
@@ -2099,7 +2118,10 @@ function DeleteOptionFields({
           />
           <FieldContent>
             <FieldLabel htmlFor={`delete-traffic-${idPrefix}`}>Related traffic</FieldLabel>
-            <FieldDescription>Deleted by the related assets' exact hostnames; traffic of shared hosts still referenced by other tasks is kept.</FieldDescription>
+            <FieldDescription>
+              Deleted by the related assets' exact hostnames; traffic of shared hosts still referenced by other tasks is
+              kept.
+            </FieldDescription>
           </FieldContent>
         </Field>
         <Field orientation="horizontal">
@@ -2110,7 +2132,9 @@ function DeleteOptionFields({
           />
           <FieldContent>
             <FieldLabel htmlFor={`delete-files-${idPrefix}`}>Task files</FieldLabel>
-            <FieldDescription>Delete uploaded files, command output, and other artifacts in the task's working directory.</FieldDescription>
+            <FieldDescription>
+              Delete uploaded files, command output, and other artifacts in the task's working directory.
+            </FieldDescription>
           </FieldContent>
         </Field>
         <Field orientation="horizontal">
@@ -2121,7 +2145,9 @@ function DeleteOptionFields({
           />
           <FieldContent>
             <FieldLabel htmlFor={`delete-findings-${idPrefix}`}>Related findings</FieldLabel>
-            <FieldDescription>Permanently delete the standalone finding records and finding reports produced by this task.</FieldDescription>
+            <FieldDescription>
+              Permanently delete the standalone finding records and finding reports produced by this task.
+            </FieldDescription>
           </FieldContent>
         </Field>
         <Field orientation="horizontal">
@@ -2132,7 +2158,9 @@ function DeleteOptionFields({
           />
           <FieldContent>
             <FieldLabel htmlFor={`delete-llm-records-${idPrefix}`}>LLM request/response records</FieldLabel>
-            <FieldDescription>Permanently delete the LLM requests, responses, tokens, and error details recorded for this task.</FieldDescription>
+            <FieldDescription>
+              Permanently delete the LLM requests, responses, tokens, and error details recorded for this task.
+            </FieldDescription>
           </FieldContent>
         </Field>
       </FieldGroup>
@@ -2248,7 +2276,10 @@ function MoveTasksCategoryDialog({
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Change the category of {count} selected tasks</DialogTitle>
-          <DialogDescription>The target category applies to all selected tasks; choosing "Uncategorized" moves them out of their current category.</DialogDescription>
+          <DialogDescription>
+            The target category applies to all selected tasks; choosing "Uncategorized" moves them out of their current
+            category.
+          </DialogDescription>
         </DialogHeader>
         <Field>
           <FieldLabel htmlFor="bulk-category">Target category</FieldLabel>
@@ -2267,7 +2298,9 @@ function MoveTasksCategoryDialog({
               </SelectGroup>
             </SelectContent>
           </Select>
-          {categories.length === 0 && <FieldDescription>No categories yet; create one in "Category management" first.</FieldDescription>}
+          {categories.length === 0 && (
+            <FieldDescription>No categories yet; create one in "Category management" first.</FieldDescription>
+          )}
         </Field>
         <DialogFooter>
           <DialogClose asChild>
@@ -2333,12 +2366,13 @@ function BulkDeleteTasksDialog({
         <AlertDialogHeader>
           <AlertDialogTitle>Delete {ids.length} selected tasks?</AlertDialogTitle>
           <AlertDialogDescription>
-            The execution records and exploration graphs of these tasks will be permanently deleted; the cleanup options below apply to all selected tasks.
+            The execution records and exploration graphs of these tasks will be permanently deleted; the cleanup options
+            below apply to all selected tasks.
           </AlertDialogDescription>
         </AlertDialogHeader>
-        <div className="text-muted-foreground flex flex-wrap gap-1 text-xs">
+        <div className="flex flex-wrap gap-1 text-muted-foreground text-xs">
           {ids.slice(0, 30).map((id) => (
-            <code key={id} className="bg-muted rounded px-1.5 py-0.5 font-mono">
+            <code key={id} className="rounded bg-muted px-1.5 py-0.5 font-mono">
               #{id}
             </code>
           ))}
@@ -2419,10 +2453,10 @@ function SourceTaskPicker({
               <ComboboxItem key={taskID} value={taskID} disabled={atLimit && !value.includes(taskID)}>
                 <div className="flex min-w-0 flex-1 items-center gap-2">
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium">
+                    <p className="truncate font-medium text-sm">
                       #{taskID} · {task?.description ?? "Unknown task"}
                     </p>
-                    {task?.goal && <p className="text-muted-foreground truncate text-xs">{task.goal}</p>}
+                    {task?.goal && <p className="truncate text-muted-foreground text-xs">{task.goal}</p>}
                   </div>
                   {task && <StatusBadge domain="task" value={task.status} />}
                 </div>
@@ -2552,7 +2586,7 @@ function CategoryPicker({
               Create category "{trimmed}"
             </button>
           ) : (
-            <div className="px-2 py-2 text-sm text-muted-foreground">Type a name to search or create a category</div>
+            <div className="px-2 py-2 text-muted-foreground text-sm">Type a name to search or create a category</div>
           ))}
       </ComboboxContent>
     </Combobox>
@@ -2623,13 +2657,15 @@ function CompanyPicker({
               <ComboboxItem key={companyID} value={companyID}>
                 <div className="flex min-w-0 flex-1 flex-col gap-0.5">
                   <div className="flex min-w-0 items-center gap-2">
-                    <span className="min-w-0 flex-1 truncate font-medium">{company?.name ?? `Company #${companyID}`}</span>
-                    <span className="text-muted-foreground shrink-0 text-xs tabular-nums">
+                    <span className="min-w-0 flex-1 truncate font-medium">
+                      {company?.name ?? `Company #${companyID}`}
+                    </span>
+                    <span className="shrink-0 text-muted-foreground text-xs tabular-nums">
                       {company?.asset_count ?? 0} assets
                     </span>
                   </div>
                   {company && (
-                    <span className="text-muted-foreground truncate text-xs" title={companyScopeSummary(company)}>
+                    <span className="truncate text-muted-foreground text-xs" title={companyScopeSummary(company)}>
                       {companyScopeSummary(company)}
                     </span>
                   )}
@@ -2674,7 +2710,9 @@ function CategoryDropTarget({
       onClick={onSelect}
     >
       <span className="block truncate font-medium text-sm">{name}</span>
-      <span className="block truncate text-muted-foreground text-xs">{isOver ? "Release to move" : `${count} tasks`}</span>
+      <span className="block truncate text-muted-foreground text-xs">
+        {isOver ? "Release to move" : `${count} tasks`}
+      </span>
     </button>
   );
 }
@@ -2687,7 +2725,7 @@ function DraggableCategoryTask({ task, disabled, moving }: { task: Task; disable
 
   return (
     <Item ref={setNodeRef} variant="outline" size="sm" className={cn(isDragging && "opacity-40")}>
-      <ItemMedia className="group-has-data-[slot=item-description]/item:self-center group-has-data-[slot=item-description]/item:translate-y-0">
+      <ItemMedia className="group-has-data-[slot=item-description]/item:translate-y-0 group-has-data-[slot=item-description]/item:self-center">
         {moving ? (
           <Spinner />
         ) : (
@@ -2695,7 +2733,7 @@ function DraggableCategoryTask({ task, disabled, moving }: { task: Task; disable
             type="button"
             size="icon-xs"
             variant="ghost"
-            className="touch-none cursor-grab active:cursor-grabbing"
+            className="cursor-grab touch-none active:cursor-grabbing"
             disabled={disabled}
             {...listeners}
             {...attributes}
@@ -2726,7 +2764,7 @@ function DraggableCategoryTask({ task, disabled, moving }: { task: Task; disable
 function CategoryTaskDragPreview({ task }: { task: Task }) {
   return (
     <Item variant="outline" size="sm" className="w-80 bg-background shadow-lg">
-      <ItemMedia className="group-has-data-[slot=item-description]/item:self-center group-has-data-[slot=item-description]/item:translate-y-0">
+      <ItemMedia className="group-has-data-[slot=item-description]/item:translate-y-0 group-has-data-[slot=item-description]/item:self-center">
         <GripVerticalIcon className="size-4 text-muted-foreground" />
       </ItemMedia>
       <ItemContent className="min-w-0">
@@ -2907,7 +2945,10 @@ function CategoryManagementSheet({
         <SheetContent className="grid h-full w-full! max-w-none! grid-rows-[auto_minmax(0,1fr)_auto] gap-0 overflow-hidden p-0 sm:w-[48rem]! sm:max-w-[48rem]!">
           <SheetHeader className="border-b px-6 py-5">
             <SheetTitle>Task category management</SheetTitle>
-            <SheetDescription>Categories are used for task filtering and archiving; edits never affect task execution, and deletion moves tasks to Uncategorized.</SheetDescription>
+            <SheetDescription>
+              Categories are used for task filtering and archiving; edits never affect task execution, and deletion
+              moves tasks to Uncategorized.
+            </SheetDescription>
           </SheetHeader>
           <DndContext
             sensors={sensors}
@@ -2982,7 +3023,9 @@ function CategoryManagementSheet({
                       {visibleTasks.length === 0 ? (
                         <Empty className="min-h-36 border">
                           <EmptyHeader>
-                            <EmptyTitle>{selectedCategory ? "No tasks in this category" : "No uncategorized tasks"}</EmptyTitle>
+                            <EmptyTitle>
+                              {selectedCategory ? "No tasks in this category" : "No uncategorized tasks"}
+                            </EmptyTitle>
                             <EmptyDescription>Content appears here once tasks are assigned.</EmptyDescription>
                           </EmptyHeader>
                         </Empty>
@@ -3039,7 +3082,8 @@ function CategoryManagementSheet({
           <AlertDialogHeader>
             <AlertDialogTitle>Delete category "{selectedCategory?.name || "Unnamed category"}"?</AlertDialogTitle>
             <AlertDialogDescription>
-              After the category is deleted, its {selectedCategory?.task_count ?? 0} tasks move to "Uncategorized" automatically; task data is not deleted.
+              After the category is deleted, its {selectedCategory?.task_count ?? 0} tasks move to "Uncategorized"
+              automatically; task data is not deleted.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -3125,7 +3169,7 @@ function CreateTaskSheet({
       setDescription((prev) => appendUploads(prev, r.attachments));
       setUploadCount((n) => n + r.attachments.length);
     } catch (e) {
-      toast.error("Upload failed: " + (e as Error).message);
+      toast.error(`Upload failed: ${(e as Error).message}`);
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = ""; // allow re-picking the same file
@@ -3161,7 +3205,12 @@ function CreateTaskSheet({
           .map((r) => ({ ...r, pattern: r.pattern.trim() }))
           .filter((r) => r.pattern !== ""),
         credentials: credentials
-          .map((c) => ({ domain: c.domain.trim(), username: c.username.trim(), password: c.password, note: c.note?.trim() ?? "" }))
+          .map((c) => ({
+            domain: c.domain.trim(),
+            username: c.username.trim(),
+            password: c.password,
+            note: c.note?.trim() ?? "",
+          }))
           .filter((c) => c.domain !== "" && c.username !== ""),
       });
       toast.success("Task created");
@@ -3183,7 +3232,7 @@ function CreateTaskSheet({
       setOpen(false);
       onCreated();
     } catch (e) {
-      toast.error("Create failed: " + (e as Error).message);
+      toast.error(`Create failed: ${(e as Error).message}`);
     } finally {
       setCreating(false);
     }
@@ -3205,7 +3254,9 @@ function CreateTaskSheet({
       >
         <SheetHeader className="border-b p-6">
           <SheetTitle>New task</SheetTitle>
-          <SheetDescription>Fill in the test target and goal; advanced parameters can be expanded as needed.</SheetDescription>
+          <SheetDescription>
+            Fill in the test target and goal; advanced parameters can be expanded as needed.
+          </SheetDescription>
         </SheetHeader>
 
         <div className="flex-1 overflow-y-auto p-6">
@@ -3244,7 +3295,9 @@ function CreateTaskSheet({
                 onCategoryCreated={onCategoriesChanged}
                 portalContainer={sheetContentRef}
               />
-              <FieldDescription>Optional, single category; used for task list filtering and archiving, never affecting agent execution.</FieldDescription>
+              <FieldDescription>
+                Optional, single category; used for task list filtering and archiving, never affecting agent execution.
+              </FieldDescription>
             </Field>
             <div className="grid gap-2">
               <Label htmlFor="description">Description</Label>
@@ -3300,8 +3353,8 @@ function CreateTaskSheet({
                 portalContainer={sheetContentRef}
               />
               <FieldDescription>
-                Link up to {MAX_SOURCE_TASKS}{" "}
-                tasks. Live, read-only inheritance of the selected tasks' persistent blackboards, asset scope, and related traffic; the new task writes to its own blackboard.
+                Link up to {MAX_SOURCE_TASKS} tasks. Live, read-only inheritance of the selected tasks' persistent
+                blackboards, asset scope, and related traffic; the new task writes to its own blackboard.
               </FieldDescription>
             </Field>
             <Field>
@@ -3313,15 +3366,21 @@ function CreateTaskSheet({
                 portalContainer={sheetContentRef}
               />
               <FieldDescription>
-                On task creation, the selected companies' current assets are added to "Test assets", and their domains, IPs, CIDRs, ICPs, and company keywords are provided to the agent
-                as scope context; no intents are generated automatically and execution goals are not forced to change.
+                On task creation, the selected companies' current assets are added to "Test assets", and their domains,
+                IPs, CIDRs, ICPs, and company keywords are provided to the agent as scope context; no intents are
+                generated automatically and execution goals are not forced to change.
               </FieldDescription>
             </Field>
             <Field>
-              <FieldLabel htmlFor="task-intercept-rules">Task-level asset intercept / allow rules (optional)</FieldLabel>
+              <FieldLabel htmlFor="task-intercept-rules">
+                Task-level asset intercept / allow rules (optional)
+              </FieldLabel>
               <AssetInterceptRulesEditor value={interceptRules} onChange={setInterceptRules} />
               <FieldDescription>
-                Applies to this task only and is not written to global rules. Evaluation order: "Block" rules (including global ones) match first, and a hit forbids testing; with no hit and "Allow" rules configured for this task, an asset must match an allow rule to be permitted, otherwise testing is likewise forbidden; with no allow rules configured, no whitelist is active.
+                Applies to this task only and is not written to global rules. Evaluation order: "Block" rules (including
+                global ones) match first, and a hit forbids testing; with no hit and "Allow" rules configured for this
+                task, an asset must match an allow rule to be permitted, otherwise testing is likewise forbidden; with
+                no allow rules configured, no whitelist is active.
               </FieldDescription>
             </Field>
             <Field>
@@ -3333,7 +3392,10 @@ function CreateTaskSheet({
                 inputId="llm-profiles"
                 portalContainer={sheetContentRef}
               />
-              <FieldDescription>Failover follows the list order; the first entry is the current config, and the next one is used only when the quota is clearly insufficient.</FieldDescription>
+              <FieldDescription>
+                Failover follows the list order; the first entry is the current config, and the next one is used only
+                when the quota is clearly insufficient.
+              </FieldDescription>
             </Field>
             <Field>
               <FieldLabel htmlFor="task-credentials">Test accounts (optional)</FieldLabel>
@@ -3343,17 +3405,23 @@ function CreateTaskSheet({
                     <Input
                       placeholder="domain (e.g. target.example.com)"
                       value={c.domain}
-                      onChange={(e) => setCredentials((prev) => prev.map((x, j) => (j === i ? { ...x, domain: e.target.value } : x)))}
+                      onChange={(e) =>
+                        setCredentials((prev) => prev.map((x, j) => (j === i ? { ...x, domain: e.target.value } : x)))
+                      }
                     />
                     <Input
                       placeholder="email or username"
                       value={c.username}
-                      onChange={(e) => setCredentials((prev) => prev.map((x, j) => (j === i ? { ...x, username: e.target.value } : x)))}
+                      onChange={(e) =>
+                        setCredentials((prev) => prev.map((x, j) => (j === i ? { ...x, username: e.target.value } : x)))
+                      }
                     />
                     <Input
                       placeholder="password (empty = agent generates)"
                       value={c.password}
-                      onChange={(e) => setCredentials((prev) => prev.map((x, j) => (j === i ? { ...x, password: e.target.value } : x)))}
+                      onChange={(e) =>
+                        setCredentials((prev) => prev.map((x, j) => (j === i ? { ...x, password: e.target.value } : x)))
+                      }
                     />
                     <Button
                       type="button"
@@ -3368,7 +3436,9 @@ function CreateTaskSheet({
                       className="sm:col-span-4"
                       placeholder="note (optional, e.g. program alias account)"
                       value={c.note ?? ""}
-                      onChange={(e) => setCredentials((prev) => prev.map((x, j) => (j === i ? { ...x, note: e.target.value } : x)))}
+                      onChange={(e) =>
+                        setCredentials((prev) => prev.map((x, j) => (j === i ? { ...x, note: e.target.value } : x)))
+                      }
                     />
                   </div>
                 ))}
@@ -3377,24 +3447,28 @@ function CreateTaskSheet({
                   size="sm"
                   variant="outline"
                   className="w-fit"
-                  onClick={() => setCredentials((prev) => [...prev, { domain: "", username: "", password: "", note: "" }])}
+                  onClick={() =>
+                    setCredentials((prev) => [...prev, { domain: "", username: "", password: "", note: "" }])
+                  }
                 >
                   <PlusIcon className="size-4" /> Add account
                 </Button>
               </div>
               <FieldDescription>
-                Test accounts reused by the agent for authenticated testing. Leave the password empty to have the agent register that
-                account itself and record the password it chose. Use dedicated test accounts only — anything declared here is sent to
-                the configured LLM provider during the task.
+                Test accounts reused by the agent for authenticated testing. Leave the password empty to have the agent
+                register that account itself and record the password it chose. Use dedicated test accounts only.
+                Anything declared here is sent to the configured LLM provider during the task.
               </FieldDescription>
             </Field>
 
             {/* Advanced parameters are collapsed by default: timeout/heartbeat/first intent; they take space only when expanded, keeping the common path clean. */}
             <Collapsible>
-              <CollapsibleTrigger className="group flex w-full items-center gap-2 border-t pt-4 text-sm font-medium">
-                <ChevronRightIcon className="text-muted-foreground size-4 transition-transform group-data-[state=open]:rotate-90" />
+              <CollapsibleTrigger className="group flex w-full items-center gap-2 border-t pt-4 font-medium text-sm">
+                <ChevronRightIcon className="size-4 text-muted-foreground transition-transform group-data-[state=open]:rotate-90" />
                 Advanced settings
-                <span className="text-muted-foreground ml-auto text-xs font-normal">Timeout · Heartbeat · First intent</span>
+                <span className="ml-auto font-normal text-muted-foreground text-xs">
+                  Timeout · Heartbeat · First intent
+                </span>
               </CollapsibleTrigger>
               <CollapsibleContent className="grid gap-5 pt-5">
                 <div className="grid gap-2">
@@ -3409,7 +3483,8 @@ function CreateTaskSheet({
                     onChange={(e) => setTimeoutMin(e.target.value)}
                   />
                   <p className="text-muted-foreground text-xs">
-                    When the time is up, a graceful wind-down is triggered (each agent writes back + the planner makes the final verdict) and the task enters the timeout terminal state.
+                    When the time is up, a graceful wind-down is triggered (each agent writes back + the planner makes
+                    the final verdict) and the task enters the timeout terminal state.
                   </p>
                 </div>
                 <div className="grid gap-2">
@@ -3425,7 +3500,8 @@ function CreateTaskSheet({
                   />
                   <p className="text-muted-foreground text-xs">
                     When this much time has passed since the last planning round ended or the task started, with no
-                    triggers in between, a planning round fires automatically (deadlock backstop + wakes supervision of running workers). Minimum 10 minutes.
+                    triggers in between, a planning round fires automatically (deadlock backstop + wakes supervision of
+                    running workers). Minimum 10 minutes.
                   </p>
                 </div>
                 <div className="grid gap-2">
@@ -3438,8 +3514,10 @@ function CreateTaskSheet({
                     Dispatch the first intent directly (description + goal)
                   </label>
                   <p className="text-muted-foreground text-xs">
-                    When enabled, the "description + goal" is dispatched as one intent right at creation; the worker starts without waiting for the first planning round and the planner
-                    takes over afterwards to judge/follow up. Recommended for settings like CTF where one run usually solves it directly; disabled follows the standard plan-then-execute flow.
+                    When enabled, the "description + goal" is dispatched as one intent right at creation; the worker
+                    starts without waiting for the first planning round and the planner takes over afterwards to
+                    judge/follow up. Recommended for settings like CTF where one run usually solves it directly;
+                    disabled follows the standard plan-then-execute flow.
                   </p>
                 </div>
                 <div className="grid gap-2">
@@ -3452,8 +3530,10 @@ function CreateTaskSheet({
                     Asset coverage feature
                   </label>
                   <p className="text-muted-foreground text-xs">
-                    On by default: computes and displays test coverage, shows testing progress on the situational graph, and automatically accumulates the test scope. When off, coverage is no longer computed or displayed,
-                    the situational graph shows assets without progress, and agents no longer receive scope-related tools. Disabling does not affect "Linked company asset scope".
+                    On by default: computes and displays test coverage, shows testing progress on the situational graph,
+                    and automatically accumulates the test scope. When off, coverage is no longer computed or displayed,
+                    the situational graph shows assets without progress, and agents no longer receive scope-related
+                    tools. Disabling does not affect "Linked company asset scope".
                   </p>
                 </div>
               </CollapsibleContent>

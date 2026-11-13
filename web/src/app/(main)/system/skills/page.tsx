@@ -1,19 +1,20 @@
 "use client";
 
 import * as React from "react";
-import { toast } from "sonner";
+
 import {
+  AlertTriangleIcon,
   ChevronRightIcon,
+  FilePlusIcon,
+  FileTextIcon,
   FolderIcon,
   FolderOpenIcon,
   FolderPlusIcon,
-  FileTextIcon,
-  FilePlusIcon,
   PlusIcon,
   Trash2Icon,
   UploadIcon,
-  AlertTriangleIcon,
 } from "lucide-react";
+import { toast } from "sonner";
 
 import {
   AlertDialog,
@@ -25,25 +26,21 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Badge } from "@/components/ui/badge";
-import {
-  Sheet,
-  SheetContent,
-  SheetFooter,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
+import { Sheet, SheetContent, SheetFooter, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { cn } from "@/lib/utils";
+import { Textarea } from "@/components/ui/textarea";
 import { api } from "@/lib/api";
-import type { Agent, SkillItem, MCPServer, SkillCall, MissingSkill } from "@/lib/types";
+import type { Agent, MCPServer, MissingSkill, SkillCall, SkillItem } from "@/lib/types";
+import { cn } from "@/lib/utils";
 
 function fmtTime(ts?: string) {
   if (!ts) return "Never called";
@@ -58,7 +55,7 @@ function fmtTime(ts?: string) {
 // ── Tree node ──────────────────────────────────────────────────────────────
 interface TreeNode {
   name: string;
-  path: string;   // relative to skill root, dirs WITHOUT trailing slash
+  path: string; // relative to skill root, dirs WITHOUT trailing slash
   type: "file" | "dir";
   children: TreeNode[];
 }
@@ -68,7 +65,7 @@ function buildTree(entries: string[]): TreeNode[] {
   const root: TreeNode[] = [];
   const dirMap = new Map<string, TreeNode>();
 
-  function ensureDir(dirPath: string, parentNodes: TreeNode[]): TreeNode[] {
+  function ensureDir(dirPath: string, _parentNodes: TreeNode[]): TreeNode[] {
     if (dirMap.has(dirPath)) return dirMap.get(dirPath)!.children;
     const parts = dirPath.split("/");
     let nodes = root;
@@ -124,9 +121,7 @@ function sortNodes(nodes: TreeNode[]): void {
 }
 
 // ── State types ───────────────────────────────────────────────────────────
-type Selected =
-  | { skill: string; path: null }
-  | { skill: string; path: string };
+type Selected = { skill: string; path: null } | { skill: string; path: string };
 
 type Creating = {
   skill: string;
@@ -177,7 +172,12 @@ function SkillsOverview({
   if (skills.length === 0) {
     return (
       <div className="flex h-full items-center justify-center">
-        <p className="text-sm text-muted-foreground">No skills yet — click "Create" or "Upload archive" on the left to get started</p>
+        <Empty>
+          <EmptyHeader>
+            <EmptyTitle>No skills yet</EmptyTitle>
+            <EmptyDescription>Click "Create" or "Upload archive" on the left to get started.</EmptyDescription>
+          </EmptyHeader>
+        </Empty>
       </div>
     );
   }
@@ -185,33 +185,43 @@ function SkillsOverview({
   const stats: { label: string; value: React.ReactNode; hint?: string }[] = [
     { label: "Total skills", value: skills.length, hint: `${agg.usedCount} have been called` },
     { label: "Total calls", value: agg.totalCalls },
-    { label: "Unused", value: agg.neverUsed.length, hint: agg.neverUsed.length > 0 ? "never loaded by any agent" : "all used" },
-    { label: "Missed calls", value: agg.missingCalls, hint: missing.length > 0 ? `${missing.length} missing skills` : "none" },
+    {
+      label: "Unused",
+      value: agg.neverUsed.length,
+      hint: agg.neverUsed.length > 0 ? "never loaded by any agent" : "all used",
+    },
+    {
+      label: "Missed calls",
+      value: agg.missingCalls,
+      hint: missing.length > 0 ? `${missing.length} missing skills` : "none",
+    },
   ];
 
   return (
     <div className="mx-auto w-full max-w-3xl space-y-6">
       <div>
-        <h2 className="text-base font-semibold">Skill library overview</h2>
-        <p className="text-muted-foreground text-sm">Select a skill on the left to view details and call history, or get a quick picture of overall usage here.</p>
+        <h2 className="font-semibold text-base">Skill library overview</h2>
+        <p className="text-muted-foreground text-sm">
+          Select a skill on the left to view details and call history, or get a quick picture of overall usage here.
+        </p>
       </div>
 
       {/* stat cards */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         {stats.map((s) => (
           <div key={s.label} className="rounded-lg border p-3">
-            <p className="text-2xl font-semibold tabular-nums">{s.value}</p>
-            <p className="text-xs font-medium">{s.label}</p>
-            {s.hint && <p className="text-muted-foreground mt-0.5 text-[11px]">{s.hint}</p>}
+            <p className="font-semibold text-2xl tabular-nums">{s.value}</p>
+            <p className="font-medium text-xs">{s.label}</p>
+            {s.hint && <p className="mt-0.5 text-[11px] text-muted-foreground">{s.hint}</p>}
           </div>
         ))}
       </div>
 
       {/* call ranking */}
       <div className="space-y-2">
-        <Label className="text-xs text-muted-foreground">Call ranking</Label>
+        <Label className="text-muted-foreground text-xs">Call ranking</Label>
         {agg.ranked.length === 0 ? (
-          <p className="text-muted-foreground rounded-lg border border-dashed p-4 text-center text-xs">
+          <p className="rounded-lg border border-dashed p-4 text-center text-muted-foreground text-xs">
             No skill call records yet.
           </p>
         ) : (
@@ -223,14 +233,16 @@ function SkillsOverview({
                 onClick={() => onSelect(s.name)}
                 className="group flex w-full items-center gap-3 rounded-md px-2 py-1.5 text-left hover:bg-muted"
               >
-                <span className="w-40 shrink-0 truncate font-mono text-xs" title={s.name}>{s.name}</span>
+                <span className="w-40 shrink-0 truncate font-mono text-xs" title={s.name}>
+                  {s.name}
+                </span>
                 <span className="relative h-2 flex-1 overflow-hidden rounded-full bg-muted">
                   <span
                     className="absolute inset-y-0 left-0 rounded-full bg-primary/70"
                     style={{ width: `${agg.topCalls > 0 ? (s.calls / agg.topCalls) * 100 : 0}%` }}
                   />
                 </span>
-                <span className="w-16 shrink-0 text-right text-xs tabular-nums text-muted-foreground">
+                <span className="w-16 shrink-0 text-right text-muted-foreground text-xs tabular-nums">
                   {s.calls} calls
                 </span>
               </button>
@@ -242,7 +254,7 @@ function SkillsOverview({
       <div className="grid gap-6 sm:grid-cols-2">
         {/* recent calls */}
         <div className="space-y-2">
-          <Label className="text-xs text-muted-foreground">Recent calls</Label>
+          <Label className="text-muted-foreground text-xs">Recent calls</Label>
           {agg.recent.length === 0 ? (
             <p className="text-muted-foreground text-xs">No records yet.</p>
           ) : (
@@ -254,8 +266,12 @@ function SkillsOverview({
                   onClick={() => onSelect(s.name)}
                   className="flex w-full items-center gap-2 rounded px-1.5 py-1 text-left hover:bg-muted"
                 >
-                  <span className="min-w-0 flex-1 truncate font-mono text-xs" title={s.name}>{s.name}</span>
-                  <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">{fmtTime(s.last_used)}</span>
+                  <span className="min-w-0 flex-1 truncate font-mono text-xs" title={s.name}>
+                    {s.name}
+                  </span>
+                  <span className="shrink-0 text-[11px] text-muted-foreground tabular-nums">
+                    {fmtTime(s.last_used)}
+                  </span>
                 </button>
               ))}
             </div>
@@ -264,7 +280,7 @@ function SkillsOverview({
 
         {/* unused (candidates for cleanup / exposure) */}
         <div className="space-y-2">
-          <Label className="text-xs text-muted-foreground">
+          <Label className="text-muted-foreground text-xs">
             Unused skills
             {agg.neverUsed.length > 0 && <span className="ml-1 font-normal"> ({agg.neverUsed.length})</span>}
           </Label>
@@ -273,13 +289,11 @@ function SkillsOverview({
           ) : (
             <div className="flex flex-wrap gap-1.5">
               {agg.neverUsed.map((s) => (
-                <button
-                  key={s.name}
-                  type="button"
-                  onClick={() => onSelect(s.name)}
-                  title={s.name}
-                >
-                  <Badge variant="outline" className="max-w-[12rem] cursor-pointer truncate font-mono text-xs font-normal hover:bg-muted">
+                <button key={s.name} type="button" onClick={() => onSelect(s.name)} title={s.name}>
+                  <Badge
+                    variant="outline"
+                    className="max-w-[12rem] cursor-pointer truncate font-mono font-normal text-xs hover:bg-muted"
+                  >
                     {s.name}
                   </Badge>
                 </button>
@@ -342,20 +356,35 @@ export default function SkillsPage() {
 
   // ── Data ──────────────────────────────────────────────────────────────────
   const load = React.useCallback(() => {
-    api.agents().then(setAgents).catch(() => {});
-    api.mcpServers().then(setMcpOptions).catch(() => {});
-    api.missingSkills().then(setMissing).catch(() => {});
-    api.skills().then((ss) => {
-      setSkills(ss);
-      ss.forEach((s) =>
-        api.skillVisibility(s.name)
-          .then((ids) => setVisibility((v) => ({ ...v, [s.name]: ids })))
-          .catch(() => {}),
-      );
-    }).catch(() => {});
+    api
+      .agents()
+      .then(setAgents)
+      .catch(() => {});
+    api
+      .mcpServers()
+      .then(setMcpOptions)
+      .catch(() => {});
+    api
+      .missingSkills()
+      .then(setMissing)
+      .catch(() => {});
+    api
+      .skills()
+      .then((ss) => {
+        setSkills(ss);
+        ss.forEach((s) =>
+          api
+            .skillVisibility(s.name)
+            .then((ids) => setVisibility((v) => ({ ...v, [s.name]: ids })))
+            .catch(() => {}),
+        );
+      })
+      .catch(() => {});
   }, []);
 
-  React.useEffect(() => { load(); }, [load]);
+  React.useEffect(() => {
+    load();
+  }, [load]);
 
   // ── Upload a .zip skill ───────────────────────────────────────────────────
   async function uploadZip(file: File, overwrite = false) {
@@ -373,7 +402,7 @@ export default function SkillsPage() {
           return;
         }
       } else {
-        toast.error("Upload failed: " + msg);
+        toast.error(`Upload failed: ${msg}`);
       }
     } finally {
       setUploading(false);
@@ -382,7 +411,7 @@ export default function SkillsPage() {
   function onUploadPick(e: React.ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0];
     e.target.value = ""; // reset so picking the same file again re-fires
-    if (f) uploadZip(f);
+    if (f) void uploadZip(f);
   }
 
   React.useEffect(() => {
@@ -401,20 +430,32 @@ export default function SkillsPage() {
 
   // Recent calls for the selected skill (detail panel only).
   React.useEffect(() => {
-    if (!selected || selected.path !== null) { setUsageCalls([]); return; }
+    if (!selected || selected.path !== null) {
+      setUsageCalls([]);
+      return;
+    }
     const name = selected.skill;
     setUsageLoading(true);
-    api.skillUsage(name, 20)
+    api
+      .skillUsage(name, 20)
       .then((calls) => setUsageCalls(calls))
       .catch(() => setUsageCalls([]))
       .finally(() => setUsageLoading(false));
   }, [selected]);
 
   React.useEffect(() => {
-    if (!selected || selected.path === null) { setFileContent(""); setDirty(false); return; }
+    if (!selected || selected.path === null) {
+      setFileContent("");
+      setDirty(false);
+      return;
+    }
     setFileLoading(true);
-    api.readSkillFile(selected.skill, selected.path)
-      .then((c) => { setFileContent(c); setDirty(false); })
+    api
+      .readSkillFile(selected.skill, selected.path)
+      .then((c) => {
+        setFileContent(c);
+        setDirty(false);
+      })
       .catch(() => toast.error("Failed to read the file"))
       .finally(() => setFileLoading(false));
   }, [selected]);
@@ -423,7 +464,8 @@ export default function SkillsPage() {
   function toggleExpanded(key: string) {
     setExpanded((prev) => {
       const next = new Set(prev);
-      if (next.has(key)) next.delete(key); else next.add(key);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
       return next;
     });
   }
@@ -453,12 +495,19 @@ export default function SkillsPage() {
   // Use a ref snapshot so commitCreate reads the latest creating value
   // without depending on potentially stale closure state.
   const creatingRef = React.useRef<Creating>(null);
-  React.useEffect(() => { creatingRef.current = creating; }, [creating]);
+  React.useEffect(() => {
+    creatingRef.current = creating;
+  }, [creating]);
   const newEntryRef = React.useRef("");
-  React.useEffect(() => { newEntryRef.current = newEntryName; }, [newEntryName]);
+  React.useEffect(() => {
+    newEntryRef.current = newEntryName;
+  }, [newEntryName]);
 
   async function commitCreate() {
-    if (cancelRef.current) { cancelRef.current = false; return; }
+    if (cancelRef.current) {
+      cancelRef.current = false;
+      return;
+    }
     const c = creatingRef.current;
     const name = newEntryRef.current.trim();
     setCreating(null);
@@ -479,7 +528,7 @@ export default function SkillsPage() {
       }
       load();
     } catch (e) {
-      toast.error("Create failed: " + (e as Error).message);
+      toast.error(`Create failed: ${(e as Error).message}`);
     }
   }
 
@@ -496,7 +545,7 @@ export default function SkillsPage() {
       if (selected?.skill === skill && selected.path === path) setSelected(null);
       load();
     } catch (e) {
-      toast.error("Delete failed: " + (e as Error).message);
+      toast.error(`Delete failed: ${(e as Error).message}`);
     }
   }
 
@@ -507,7 +556,7 @@ export default function SkillsPage() {
       if (selected?.skill === name) setSelected(null);
       load();
     } catch (e) {
-      toast.error("Delete failed: " + (e as Error).message);
+      toast.error(`Delete failed: ${(e as Error).message}`);
     }
   }
 
@@ -532,14 +581,14 @@ export default function SkillsPage() {
       toast.success("Saved");
       setDirty(false);
     } catch (e) {
-      toast.error("Save failed: " + (e as Error).message);
-    } finally { setSaving(false); }
+      toast.error(`Save failed: ${(e as Error).message}`);
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function toggleSkillMcp(skillName: string, mcpName: string, mcpOn: boolean) {
-    const next = mcpOn
-      ? [...detailMcps, mcpName]
-      : detailMcps.filter((n) => n !== mcpName);
+    const next = mcpOn ? [...detailMcps, mcpName] : detailMcps.filter((n) => n !== mcpName);
     setDetailMcps(next);
     try {
       await api.updateSkillMeta(skillName, { mcps: next });
@@ -548,7 +597,7 @@ export default function SkillsPage() {
     } catch (e) {
       // roll back on error
       setDetailMcps(detailMcps);
-      toast.error("Operation failed: " + (e as Error).message);
+      toast.error(`Operation failed: ${(e as Error).message}`);
     }
   }
 
@@ -560,18 +609,25 @@ export default function SkillsPage() {
       const ids = await api.skillVisibility(skillName);
       setVisibility((v) => ({ ...v, [skillName]: ids }));
     } catch (e) {
-      toast.error("Operation failed: " + (e as Error).message);
+      toast.error(`Operation failed: ${(e as Error).message}`);
     }
   }
 
   async function createNewSkill() {
-    if (!newName.trim()) { toast.error("Please fill in the name"); return; }
-    if (!newDesc.trim()) { toast.error("description is required"); return; }
+    if (!newName.trim()) {
+      toast.error("Please fill in the name");
+      return;
+    }
+    if (!newDesc.trim()) {
+      toast.error("description is required");
+      return;
+    }
     setCreatingSkill(true);
     try {
       const name = newName.trim();
       await api.createSkill({
-        name, description: newDesc.trim(),
+        name,
+        description: newDesc.trim(),
         license: newLicense.trim() || undefined,
         compatibility: newCompat.trim() || undefined,
         mcps: newMcps.length ? newMcps : undefined,
@@ -581,27 +637,31 @@ export default function SkillsPage() {
       await Promise.all(newVisibility.map((id) => api.toggleSkillVisibility(id, name, true)));
       toast.success("Skill created");
       setNewOpen(false);
-      setNewName(""); setNewDesc(""); setNewLicense(""); setNewCompat(""); setNewInst("");
-      setNewMcps([]); setNewVisibility([]);
+      setNewName("");
+      setNewDesc("");
+      setNewLicense("");
+      setNewCompat("");
+      setNewInst("");
+      setNewMcps([]);
+      setNewVisibility([]);
       load();
     } catch (e) {
-      toast.error("Create failed: " + (e as Error).message);
-    } finally { setCreatingSkill(false); }
+      toast.error(`Create failed: ${(e as Error).message}`);
+    } finally {
+      setCreatingSkill(false);
+    }
   }
 
   // ── Inline input JSX helper (NOT a React component — avoids remount on re-render) ──
   // Defined as a plain function returning JSX so React never sees a new component type.
   function inlineInputJSX(indent: number) {
     return (
-      <div
-        key="__inline_create__"
-        className="flex items-center gap-1 py-0.5 pr-2"
-        style={{ paddingLeft: indent }}
-      >
-        {creating?.kind === "dir"
-          ? <FolderIcon className="size-3.5 shrink-0 text-amber-500" />
-          : <FileTextIcon className="size-3.5 shrink-0 text-muted-foreground" />
-        }
+      <div key="__inline_create__" className="flex items-center gap-1 py-0.5 pr-2" style={{ paddingLeft: indent }}>
+        {creating?.kind === "dir" ? (
+          <FolderIcon className="size-3.5 shrink-0 text-amber-500" />
+        ) : (
+          <FileTextIcon className="size-3.5 shrink-0 text-muted-foreground" />
+        )}
         <Input
           ref={inlineRef}
           className="h-6 flex-1 px-1 py-0 font-mono text-xs"
@@ -609,10 +669,15 @@ export default function SkillsPage() {
           value={newEntryName}
           onChange={(e) => setNewEntryName(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === "Enter") { cancelRef.current = false; void commitCreate(); }
+            if (e.key === "Enter") {
+              cancelRef.current = false;
+              void commitCreate();
+            }
             if (e.key === "Escape") cancelCreate();
           }}
-          onBlur={() => { void commitCreate(); }}
+          onBlur={() => {
+            void commitCreate();
+          }}
         />
       </div>
     );
@@ -635,23 +700,50 @@ export default function SkillsPage() {
               onClick={() => toggleExpanded(key)}
             >
               <ChevronRightIcon className={cn("size-3.5 shrink-0 transition-transform", open && "rotate-90")} />
-              {open
-                ? <FolderOpenIcon className="size-3.5 shrink-0 text-amber-500" />
-                : <FolderIcon className="size-3.5 shrink-0 text-amber-500" />
-              }
-              <span className="min-w-0 flex-1 truncate" title={node.path}>{node.name}</span>
+              {open ? (
+                <FolderOpenIcon className="size-3.5 shrink-0 text-amber-500" />
+              ) : (
+                <FolderIcon className="size-3.5 shrink-0 text-amber-500" />
+              )}
+              <span className="min-w-0 flex-1 truncate" title={node.path}>
+                {node.name}
+              </span>
               {/* Absolute so a long name can never push the actions out of view */}
               <span className="absolute inset-y-0 right-1 hidden items-center gap-0.5 rounded bg-muted pl-1 group-hover:flex">
-                <Button size="icon" variant="ghost" className="size-5" title="New file"
-                  onClick={(e) => { e.stopPropagation(); startCreate(skill, node.path, "file"); }}>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="size-5"
+                  title="New file"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    startCreate(skill, node.path, "file");
+                  }}
+                >
                   <FilePlusIcon className="size-3 text-muted-foreground" />
                 </Button>
-                <Button size="icon" variant="ghost" className="size-5" title="New folder"
-                  onClick={(e) => { e.stopPropagation(); startCreate(skill, node.path, "dir"); }}>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="size-5"
+                  title="New folder"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    startCreate(skill, node.path, "dir");
+                  }}
+                >
                   <FolderPlusIcon className="size-3 text-muted-foreground" />
                 </Button>
-                <Button size="icon" variant="ghost" className="size-5" title="Delete folder"
-                  onClick={(e) => { e.stopPropagation(); setPendingDelete({ kind: "dir", skill, path: node.path }); }}>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="size-5"
+                  title="Delete folder"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setPendingDelete({ kind: "dir", skill, path: node.path });
+                  }}
+                >
                   <Trash2Icon className="size-3 text-destructive" />
                 </Button>
               </span>
@@ -659,8 +751,7 @@ export default function SkillsPage() {
             {open && (
               <>
                 {renderTree(node.children, skill, depth + 1)}
-                {creating?.skill === skill && creating.inDir === node.path &&
-                  inlineInputJSX(baseIndent + 14)}
+                {creating?.skill === skill && creating.inDir === node.path && inlineInputJSX(baseIndent + 14)}
               </>
             )}
           </div>
@@ -680,14 +771,25 @@ export default function SkillsPage() {
           onClick={() => setSelected({ skill, path: node.path })}
         >
           <FileTextIcon className="size-3.5 shrink-0 text-muted-foreground" />
-          <span className="min-w-0 flex-1 truncate font-mono text-xs" title={node.path}>{node.name}</span>
-          <span className={cn(
-            "absolute inset-y-0 right-1 hidden items-center rounded pl-1 group-hover:flex",
-            isSelected ? "bg-accent" : "bg-muted",
-          )}>
-            <Button size="icon" variant="ghost" className="size-5"
+          <span className="min-w-0 flex-1 truncate font-mono text-xs" title={node.path}>
+            {node.name}
+          </span>
+          <span
+            className={cn(
+              "absolute inset-y-0 right-1 hidden items-center rounded pl-1 group-hover:flex",
+              isSelected ? "bg-accent" : "bg-muted",
+            )}
+          >
+            <Button
+              size="icon"
+              variant="ghost"
+              className="size-5"
               title="Delete file"
-              onClick={(e) => { e.stopPropagation(); setPendingDelete({ kind: "file", skill, path: node.path }); }}>
+              onClick={(e) => {
+                e.stopPropagation();
+                setPendingDelete({ kind: "file", skill, path: node.path });
+              }}
+            >
               <Trash2Icon className="size-3 text-destructive" />
             </Button>
           </span>
@@ -696,16 +798,16 @@ export default function SkillsPage() {
     });
   }
 
-  const selectedSkill = selected
-    ? skills.find((s) => s.name === selected.skill) ?? null
-    : null;
+  const selectedSkill = selected ? (skills.find((s) => s.name === selected.skill) ?? null) : null;
 
   return (
     <div data-content-padding="false" className="flex flex-1 flex-col overflow-hidden">
       <div className="flex items-center gap-3 border-b px-4 py-2.5 lg:px-6">
         <div className="flex flex-col gap-0.5">
-          <h1 className="text-sm font-semibold leading-tight">Skill</h1>
-          <p className="text-muted-foreground text-xs">Skill library · agentskills.io spec · visibility granted per agent</p>
+          <h1 className="font-semibold text-sm leading-tight">Skill</h1>
+          <p className="text-muted-foreground text-xs">
+            Skill library · agentskills.io spec · visibility granted per agent
+          </p>
         </div>
         {/* Gap list: skills agents invoke by name but missing from the library — direct evidence of what to add. */}
         {missing.length > 0 && (
@@ -717,15 +819,17 @@ export default function SkillsPage() {
               </Button>
             </PopoverTrigger>
             <PopoverContent align="end" className="w-80">
-              <p className="mb-2 text-xs text-muted-foreground">
+              <p className="mb-2 text-muted-foreground text-xs">
                 Skills agents invoke by name that do not exist in the library. Sorted by invocation count.
               </p>
               <div className="space-y-1">
                 {missing.map((m) => (
                   <div key={m.skill} className="flex items-center gap-2 text-sm">
-                    <code className="min-w-0 flex-1 truncate font-mono text-xs" title={m.skill}>{m.skill}</code>
-                    <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{m.calls} calls</span>
-                    <span className="shrink-0 text-xs text-muted-foreground">{fmtTime(m.last_used)}</span>
+                    <code className="min-w-0 flex-1 truncate font-mono text-xs" title={m.skill}>
+                      {m.skill}
+                    </code>
+                    <span className="shrink-0 text-muted-foreground text-xs tabular-nums">{m.calls} calls</span>
+                    <span className="shrink-0 text-muted-foreground text-xs">{fmtTime(m.last_used)}</span>
                   </div>
                 ))}
               </div>
@@ -738,7 +842,8 @@ export default function SkillsPage() {
         <div className="flex w-64 shrink-0 flex-col border-r">
           <div className="flex flex-col gap-2 border-b p-2">
             <Button size="sm" variant="outline" className="w-full" onClick={() => setNewOpen(true)}>
-              <PlusIcon className="size-3.5" />Create skill
+              <PlusIcon className="size-3.5" />
+              Create skill
             </Button>
             <input
               ref={uploadRef}
@@ -762,7 +867,7 @@ export default function SkillsPage() {
           {/* Radix viewport wraps children in a display:table div that grows with
               content — force it to block so long names truncate instead of
               widening the rows past the sidebar. */}
-          <ScrollArea className="flex-1 [&>[data-slot=scroll-area-viewport]>div]:!block">
+          <ScrollArea className="[&>[data-slot=scroll-area-viewport]>div]:!block flex-1">
             <div className="p-1">
               {skills.map((s) => {
                 const isOpen = expanded.has(s.name);
@@ -781,34 +886,65 @@ export default function SkillsPage() {
                         setSelected({ skill: s.name, path: null });
                       }}
                     >
-                      <ChevronRightIcon className={cn("size-3.5 shrink-0 transition-transform", isOpen && "rotate-90")} />
-                      {isOpen
-                        ? <FolderOpenIcon className="size-3.5 shrink-0 text-blue-500" />
-                        : <FolderIcon className="size-3.5 shrink-0 text-blue-500" />
-                      }
-                      <span className="min-w-0 flex-1 truncate font-semibold" title={s.name}>{s.name}</span>
+                      <ChevronRightIcon
+                        className={cn("size-3.5 shrink-0 transition-transform", isOpen && "rotate-90")}
+                      />
+                      {isOpen ? (
+                        <FolderOpenIcon className="size-3.5 shrink-0 text-blue-500" />
+                      ) : (
+                        <FolderIcon className="size-3.5 shrink-0 text-blue-500" />
+                      )}
+                      <span className="min-w-0 flex-1 truncate font-semibold" title={s.name}>
+                        {s.name}
+                      </span>
                       {s.calls > 0 && (
                         <span
-                          className="shrink-0 rounded bg-muted px-1 text-[10px] tabular-nums text-muted-foreground"
+                          className="shrink-0 rounded bg-muted px-1 text-[10px] text-muted-foreground tabular-nums"
                           title={`Called ${s.calls} times · last ${fmtTime(s.last_used)}`}
                         >
                           {s.calls}
                         </span>
                       )}
-                      <span className={cn(
-                        "absolute inset-y-0 right-1 hidden items-center gap-0.5 rounded pl-1 group-hover:flex",
-                        isSkillSelected ? "bg-accent" : "bg-muted",
-                      )}>
-                        <Button size="icon" variant="ghost" className="size-5" title="New file"
-                          onClick={(e) => { e.stopPropagation(); startCreate(s.name, "", "file"); }}>
+                      <span
+                        className={cn(
+                          "absolute inset-y-0 right-1 hidden items-center gap-0.5 rounded pl-1 group-hover:flex",
+                          isSkillSelected ? "bg-accent" : "bg-muted",
+                        )}
+                      >
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="size-5"
+                          title="New file"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            startCreate(s.name, "", "file");
+                          }}
+                        >
                           <FilePlusIcon className="size-3 text-muted-foreground" />
                         </Button>
-                        <Button size="icon" variant="ghost" className="size-5" title="New folder"
-                          onClick={(e) => { e.stopPropagation(); startCreate(s.name, "", "dir"); }}>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="size-5"
+                          title="New folder"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            startCreate(s.name, "", "dir");
+                          }}
+                        >
                           <FolderPlusIcon className="size-3 text-muted-foreground" />
                         </Button>
-                        <Button size="icon" variant="ghost" className="size-5" title="Delete skill"
-                          onClick={(e) => { e.stopPropagation(); setPendingDelete({ kind: "skill", skill: s.name }); }}>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="size-5"
+                          title="Delete skill"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setPendingDelete({ kind: "skill", skill: s.name });
+                          }}
+                        >
                           <Trash2Icon className="size-3 text-destructive" />
                         </Button>
                       </span>
@@ -818,8 +954,7 @@ export default function SkillsPage() {
                     {isOpen && (
                       <>
                         {renderTree(tree, s.name, 0)}
-                        {creating?.skill === s.name && creating.inDir === "" &&
-                          inlineInputJSX(22)}
+                        {creating?.skill === s.name && creating.inDir === "" && inlineInputJSX(22)}
                       </>
                     )}
                   </div>
@@ -827,7 +962,12 @@ export default function SkillsPage() {
               })}
 
               {skills.length === 0 && (
-                <p className="p-3 text-xs text-muted-foreground">No skills yet — click "Create" to get started</p>
+                <Empty className="py-3">
+                  <EmptyHeader>
+                    <EmptyTitle>No skills yet</EmptyTitle>
+                    <EmptyDescription>Click "Create" to get started.</EmptyDescription>
+                  </EmptyHeader>
+                </Empty>
               )}
             </div>
           </ScrollArea>
@@ -846,16 +986,20 @@ export default function SkillsPage() {
           {selected && selected.path === null && selectedSkill && (
             <div className="max-w-5xl space-y-5">
               <div>
-                <h2 className="font-mono text-base font-semibold">{selectedSkill.name}</h2>
+                <h2 className="font-mono font-semibold text-base">{selectedSkill.name}</h2>
                 {selectedSkill.description && (
-                  <p className="mt-1 text-sm text-muted-foreground">{selectedSkill.description}</p>
+                  <p className="mt-1 text-muted-foreground text-sm">{selectedSkill.description}</p>
                 )}
                 <div className="mt-2 flex flex-wrap gap-2">
                   {selectedSkill.license && (
-                    <Badge variant="outline" className="text-xs font-normal">License: {selectedSkill.license}</Badge>
+                    <Badge variant="outline" className="font-normal text-xs">
+                      License: {selectedSkill.license}
+                    </Badge>
                   )}
                   {selectedSkill.compatibility && (
-                    <Badge variant="secondary" className="text-xs font-normal">{selectedSkill.compatibility}</Badge>
+                    <Badge variant="secondary" className="font-normal text-xs">
+                      {selectedSkill.compatibility}
+                    </Badge>
                   )}
                 </div>
               </div>
@@ -866,41 +1010,50 @@ export default function SkillsPage() {
               <div className="flex flex-col gap-6 lg:flex-row-reverse lg:items-start">
                 {/* ── right: call stats ── */}
                 <div className="space-y-2 lg:w-80 lg:shrink-0">
-                  <Label className="text-xs text-muted-foreground">Call stats</Label>
+                  <Label className="text-muted-foreground text-xs">Call stats</Label>
                   <div className="grid grid-cols-3 gap-2">
                     <div className="rounded-md border p-2">
-                      <p className="text-lg font-semibold tabular-nums">{selectedSkill.calls}</p>
-                      <p className="text-xs text-muted-foreground">Total calls</p>
+                      <p className="font-semibold text-lg tabular-nums">{selectedSkill.calls}</p>
+                      <p className="text-muted-foreground text-xs">Total calls</p>
                     </div>
                     <div className="rounded-md border p-2">
-                      <p className="text-lg font-semibold tabular-nums">{selectedSkill.tasks}</p>
-                      <p className="text-xs text-muted-foreground">Tasks covered</p>
+                      <p className="font-semibold text-lg tabular-nums">{selectedSkill.tasks}</p>
+                      <p className="text-muted-foreground text-xs">Tasks covered</p>
                     </div>
                     <div className="rounded-md border p-2">
-                      <p className="truncate text-sm font-medium" title={fmtTime(selectedSkill.last_used)}>
+                      <p className="truncate font-medium text-sm" title={fmtTime(selectedSkill.last_used)}>
                         {fmtTime(selectedSkill.last_used)}
                       </p>
-                      <p className="text-xs text-muted-foreground">Last called</p>
+                      <p className="text-muted-foreground text-xs">Last called</p>
                     </div>
                   </div>
                   {selectedSkill.usage_agents.length > 0 && (
                     <div className="flex flex-wrap items-center gap-1">
-                      <span className="text-xs text-muted-foreground">Called by:</span>
+                      <span className="text-muted-foreground text-xs">Called by:</span>
                       {selectedSkill.usage_agents.map((k) => (
-                        <Badge key={k} variant="secondary" className="text-xs font-normal">{k}</Badge>
+                        <Badge key={k} variant="secondary" className="font-normal text-xs">
+                          {k}
+                        </Badge>
                       ))}
                     </div>
                   )}
                   {usageLoading ? (
-                    <p className="text-xs text-muted-foreground">Loading call details…</p>
+                    <p className="text-muted-foreground text-xs">Loading call details…</p>
                   ) : usageCalls.length > 0 ? (
                     <div className="rounded-md border">
-                      <div className="border-b px-2 py-1 text-xs text-muted-foreground">Last {usageCalls.length} calls</div>
+                      <div className="border-b px-2 py-1 text-muted-foreground text-xs">
+                        Last {usageCalls.length} calls
+                      </div>
                       <div className="max-h-56 overflow-y-auto">
                         {usageCalls.map((c, i) => (
-                          <div key={`${c.ts}-${i}`} className="flex items-center gap-2 border-b px-2 py-1 text-xs last:border-b-0">
-                            <span className="tabular-nums text-muted-foreground">{fmtTime(c.ts)}</span>
-                            <Badge variant="outline" className="font-normal">{c.agent_key || "—"}</Badge>
+                          <div
+                            key={`${c.ts}-${i}`}
+                            className="flex items-center gap-2 border-b px-2 py-1 text-xs last:border-b-0"
+                          >
+                            <span className="text-muted-foreground tabular-nums">{fmtTime(c.ts)}</span>
+                            <Badge variant="outline" className="font-normal">
+                              {c.agent_key || "—"}
+                            </Badge>
                             <span className="ml-auto text-muted-foreground">
                               {c.task_id > 0 ? `Task #${c.task_id}` : c.session_id ? "Chat session" : "—"}
                             </span>
@@ -909,24 +1062,32 @@ export default function SkillsPage() {
                       </div>
                     </div>
                   ) : (
-                    <p className="text-xs text-muted-foreground">No call records yet.</p>
+                    <p className="text-muted-foreground text-xs">No call records yet.</p>
                   )}
                 </div>
 
                 {/* ── left: linked MCP + visibility ── */}
                 <div className="space-y-5 lg:min-w-0 lg:flex-1">
                   <div className="space-y-2">
-                    <Label className="text-xs text-muted-foreground">
+                    <Label className="text-muted-foreground text-xs">
                       Linked MCP
-                      <span className="ml-1 font-normal"> (tools are disclosed/unlocked only when the skill loads)</span>
+                      <span className="ml-1 font-normal">
+                        {" "}
+                        (tools are disclosed/unlocked only when the skill loads)
+                      </span>
                     </Label>
                     {mcpOptions.length === 0 ? (
-                      <p className="text-xs text-muted-foreground">No MCP servers yet; add one on the "MCP" page.</p>
+                      <p className="text-muted-foreground text-xs">No MCP servers yet; add one on the "MCP" page.</p>
                     ) : (
                       <div className="flex flex-wrap gap-x-4 gap-y-2">
                         {mcpOptions.map((m) => (
-                          <label key={m.id} className="flex cursor-pointer items-center gap-2 text-sm">
+                          <label
+                            key={m.id}
+                            htmlFor={`skill-mcp-${m.id}`}
+                            className="flex cursor-pointer items-center gap-2 text-sm"
+                          >
                             <Checkbox
+                              id={`skill-mcp-${m.id}`}
                               checked={detailMcps.includes(m.name)}
                               onCheckedChange={(on) => toggleSkillMcp(selectedSkill.name, m.name, !!on)}
                             />
@@ -938,20 +1099,23 @@ export default function SkillsPage() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label className="text-xs text-muted-foreground">Visibility (granted per agent)</Label>
+                    <Label className="text-muted-foreground text-xs">Visibility (granted per agent)</Label>
                     <div className="space-y-2">
                       {agents.map((a) => (
-                        <label key={a.key} className="flex cursor-pointer items-center gap-2 text-sm">
+                        <label
+                          key={a.key}
+                          htmlFor={`skill-vis-${a.id}`}
+                          className="flex cursor-pointer items-center gap-2 text-sm"
+                        >
                           <Checkbox
+                            id={`skill-vis-${a.id}`}
                             checked={(visibility[selectedSkill.name] ?? []).includes(a.id)}
                             onCheckedChange={() => toggleVisibility(selectedSkill.name, a.id, a.name)}
                           />
                           {a.name}
                         </label>
                       ))}
-                      {agents.length === 0 && (
-                        <span className="text-xs text-muted-foreground">(no agents)</span>
-                      )}
+                      {agents.length === 0 && <span className="text-muted-foreground text-xs">(no agents)</span>}
                     </div>
                   </div>
                 </div>
@@ -961,7 +1125,7 @@ export default function SkillsPage() {
 
           {selected && selected.path !== null && (
             <div className="flex h-full flex-col gap-2">
-              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <div className="flex items-center gap-2 text-muted-foreground text-xs">
                 <span className="font-medium text-foreground">{selected.skill}</span>
                 <span>/</span>
                 <span className="font-mono">{selected.path}</span>
@@ -970,12 +1134,19 @@ export default function SkillsPage() {
                 </Button>
               </div>
               {fileLoading ? (
-                <p className="text-xs text-muted-foreground">Loading…</p>
+                <div className="flex flex-col gap-2">
+                  <Skeleton className="h-3 w-full" />
+                  <Skeleton className="h-3 w-5/6" />
+                  <Skeleton className="h-3 w-4/6" />
+                </div>
               ) : (
                 <Textarea
                   className="flex-1 resize-none font-mono text-xs"
                   value={fileContent}
-                  onChange={(e) => { setFileContent(e.target.value); setDirty(true); }}
+                  onChange={(e) => {
+                    setFileContent(e.target.value);
+                    setDirty(true);
+                  }}
                 />
               )}
             </div>
@@ -984,7 +1155,12 @@ export default function SkillsPage() {
       </div>
 
       {/* ── delete confirmation ── */}
-      <AlertDialog open={!!pendingDelete} onOpenChange={(o) => { if (!o) setPendingDelete(null); }}>
+      <AlertDialog
+        open={!!pendingDelete}
+        onOpenChange={(o) => {
+          if (!o) setPendingDelete(null);
+        }}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
@@ -1004,7 +1180,10 @@ export default function SkillsPage() {
             <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
             <AlertDialogAction
               disabled={deleting}
-              onClick={(e) => { e.preventDefault(); void runPendingDelete(); }}
+              onClick={(e) => {
+                e.preventDefault();
+                void runPendingDelete();
+              }}
             >
               {deleting ? "Deleting…" : "Delete"}
             </AlertDialogAction>
@@ -1024,7 +1203,7 @@ export default function SkillsPage() {
               <TabsTrigger value="mcp">
                 Linked MCP
                 {newMcps.length > 0 && (
-                  <span className="ml-1.5 rounded-full bg-primary px-1.5 py-0.5 text-[10px] leading-none text-primary-foreground">
+                  <span className="ml-1.5 rounded-full bg-primary px-1.5 py-0.5 text-[10px] text-primary-foreground leading-none">
                     {newMcps.length}
                   </span>
                 )}
@@ -1032,7 +1211,7 @@ export default function SkillsPage() {
               <TabsTrigger value="visibility">
                 Visibility
                 {newVisibility.length > 0 && (
-                  <span className="ml-1.5 rounded-full bg-primary px-1.5 py-0.5 text-[10px] leading-none text-primary-foreground">
+                  <span className="ml-1.5 rounded-full bg-primary px-1.5 py-0.5 text-[10px] text-primary-foreground leading-none">
                     {newVisibility.length}
                   </span>
                 )}
@@ -1040,50 +1219,92 @@ export default function SkillsPage() {
             </TabsList>
 
             {/* basics */}
-            <TabsContent value="basic" className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 pb-4 pt-4 data-[state=inactive]:hidden">
+            <TabsContent
+              value="basic"
+              className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 pt-4 pb-4 data-[state=inactive]:hidden"
+            >
               <div className="grid gap-1.5">
-                <Label htmlFor="sk-name">Name <span className="text-destructive">*</span></Label>
-                <Input id="sk-name" placeholder="sqli-deepdive" value={newName} onChange={(e) => setNewName(e.target.value)} />
-                <p className="text-muted-foreground text-xs">Lowercase letters / digits / hyphens, 1–64 characters</p>
+                <Label htmlFor="sk-name">
+                  Name <span className="text-destructive">*</span>
+                </Label>
+                <Input
+                  id="sk-name"
+                  placeholder="sqli-deepdive"
+                  value={newName}
+                  onChange={(e) => setNewName(e.target.value)}
+                />
+                <p className="text-muted-foreground text-xs">Lowercase letters / digits / hyphens, 1-64 characters</p>
               </div>
               <div className="grid gap-1.5">
-                <Label htmlFor="sk-desc">Description <span className="text-destructive">*</span></Label>
-                <Textarea id="sk-desc" rows={2} className="resize-none"
+                <Label htmlFor="sk-desc">
+                  Description <span className="text-destructive">*</span>
+                </Label>
+                <Textarea
+                  id="sk-desc"
+                  rows={2}
+                  className="resize-none"
                   placeholder="What this skill does and when to use it."
-                  value={newDesc} onChange={(e) => setNewDesc(e.target.value)} />
+                  value={newDesc}
+                  onChange={(e) => setNewDesc(e.target.value)}
+                />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="grid gap-1.5">
                   <Label className="text-muted-foreground text-xs">license</Label>
-                  <Input placeholder="MIT / Proprietary" value={newLicense} onChange={(e) => setNewLicense(e.target.value)} />
+                  <Input
+                    placeholder="MIT / Proprietary"
+                    value={newLicense}
+                    onChange={(e) => setNewLicense(e.target.value)}
+                  />
                 </div>
                 <div className="grid gap-1.5">
                   <Label className="text-muted-foreground text-xs">compatibility</Label>
-                  <Input placeholder="Requires sqlmap, python3" value={newCompat} onChange={(e) => setNewCompat(e.target.value)} />
+                  <Input
+                    placeholder="Requires sqlmap, python3"
+                    value={newCompat}
+                    onChange={(e) => setNewCompat(e.target.value)}
+                  />
                 </div>
               </div>
               <div className="flex min-h-0 flex-1 flex-col gap-1.5">
-                <Label htmlFor="sk-inst">Body <span className="text-muted-foreground text-xs font-normal">(skeleton generated automatically when empty)</span></Label>
-                <Textarea id="sk-inst"
+                <Label htmlFor="sk-inst">
+                  Body{" "}
+                  <span className="font-normal text-muted-foreground text-xs">
+                    (skeleton generated automatically when empty)
+                  </span>
+                </Label>
+                <Textarea
+                  id="sk-inst"
                   className="min-h-40 flex-1 resize-none font-mono text-sm leading-relaxed"
-                  placeholder={"## How to run\n\n1. Probe for errors first\n2. Distinguish blind injection types\n\nScripts go in the scripts/ directory."}
-                  value={newInst} onChange={(e) => setNewInst(e.target.value)} />
+                  placeholder={
+                    "## How to run\n\n1. Probe for errors first\n2. Distinguish blind injection types\n\nScripts go in the scripts/ directory."
+                  }
+                  value={newInst}
+                  onChange={(e) => setNewInst(e.target.value)}
+                />
               </div>
             </TabsContent>
 
             {/* linked MCP */}
-            <TabsContent value="mcp" className="overflow-y-auto px-4 pb-4 pt-4 data-[state=inactive]:hidden">
-              <p className="mb-3 text-xs text-muted-foreground">The selected MCP's tools are disclosed and unlocked only when the skill loads.</p>
+            <TabsContent value="mcp" className="overflow-y-auto px-4 pt-4 pb-4 data-[state=inactive]:hidden">
+              <p className="mb-3 text-muted-foreground text-xs">
+                The selected MCP's tools are disclosed and unlocked only when the skill loads.
+              </p>
               {mcpOptions.length === 0 ? (
-                <p className="text-xs text-muted-foreground">No MCP servers yet; add one on the "MCP" page.</p>
+                <p className="text-muted-foreground text-xs">No MCP servers yet; add one on the "MCP" page.</p>
               ) : (
                 <div className="flex flex-col gap-2">
                   {mcpOptions.map((m) => (
-                    <label key={m.id} className="flex cursor-pointer items-center gap-2 text-sm">
+                    <label
+                      key={m.id}
+                      htmlFor={`new-skill-mcp-${m.id}`}
+                      className="flex cursor-pointer items-center gap-2 text-sm"
+                    >
                       <Checkbox
+                        id={`new-skill-mcp-${m.id}`}
                         checked={newMcps.includes(m.name)}
                         onCheckedChange={(on) =>
-                          setNewMcps((cur) => on ? [...cur, m.name] : cur.filter((n) => n !== m.name))
+                          setNewMcps((cur) => (on ? [...cur, m.name] : cur.filter((n) => n !== m.name)))
                         }
                       />
                       {m.name}
@@ -1094,18 +1315,25 @@ export default function SkillsPage() {
             </TabsContent>
 
             {/* visibility */}
-            <TabsContent value="visibility" className="overflow-y-auto px-4 pb-4 pt-4 data-[state=inactive]:hidden">
-              <p className="mb-3 text-xs text-muted-foreground">The selected agents will see this skill once it is created.</p>
+            <TabsContent value="visibility" className="overflow-y-auto px-4 pt-4 pb-4 data-[state=inactive]:hidden">
+              <p className="mb-3 text-muted-foreground text-xs">
+                The selected agents will see this skill once it is created.
+              </p>
               {agents.length === 0 ? (
-                <p className="text-xs text-muted-foreground">(no agents)</p>
+                <p className="text-muted-foreground text-xs">(no agents)</p>
               ) : (
                 <div className="flex flex-col gap-2">
                   {agents.map((a) => (
-                    <label key={a.key} className="flex cursor-pointer items-center gap-2 text-sm">
+                    <label
+                      key={a.key}
+                      htmlFor={`new-skill-vis-${a.id}`}
+                      className="flex cursor-pointer items-center gap-2 text-sm"
+                    >
                       <Checkbox
+                        id={`new-skill-vis-${a.id}`}
                         checked={newVisibility.includes(a.id)}
                         onCheckedChange={(on) =>
-                          setNewVisibility((cur) => on ? [...cur, a.id] : cur.filter((id) => id !== a.id))
+                          setNewVisibility((cur) => (on ? [...cur, a.id] : cur.filter((id) => id !== a.id)))
                         }
                       />
                       {a.name}
@@ -1117,8 +1345,12 @@ export default function SkillsPage() {
           </Tabs>
 
           <SheetFooter className="flex-row justify-end gap-2 border-t px-4 py-3">
-            <Button variant="outline" onClick={() => setNewOpen(false)}>Cancel</Button>
-            <Button onClick={createNewSkill} disabled={creatingSkill}>{creatingSkill ? "Creating…" : "Create"}</Button>
+            <Button variant="outline" onClick={() => setNewOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={createNewSkill} disabled={creatingSkill}>
+              {creatingSkill ? "Creating…" : "Create"}
+            </Button>
           </SheetFooter>
         </SheetContent>
       </Sheet>

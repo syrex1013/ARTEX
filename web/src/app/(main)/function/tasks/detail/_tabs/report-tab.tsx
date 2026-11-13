@@ -2,6 +2,8 @@
 
 import * as React from "react";
 
+import Link from "next/link";
+
 import { CheckIcon, CopyIcon, FileTextIcon } from "lucide-react";
 import { toast } from "sonner";
 
@@ -84,7 +86,12 @@ export function ReportTab({ taskId }: { taskId: string }) {
           )}
         </div>
       </CardHeader>
-      <CardContent>{content}</CardContent>
+      <CardContent>
+        <Link className="mb-4 inline-block text-sm underline" href="/reports">
+          Generate and browse saved AI report versions
+        </Link>
+        {content}
+      </CardContent>
     </Card>
   );
 }

@@ -1,5 +1,5 @@
-import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 
 const AUTH_PAGES = ["/login", "/setup"];
 
@@ -26,5 +26,7 @@ export function proxy(request: NextRequest) {
 
 export const config = {
   // Skip Next.js internal routes, API routes, favicon, and static files under public/ (images, fonts, etc.)
-  matcher: ["/((?!_next/static|_next/image|favicon\\.ico|api/|.*\\.(?:png|jpg|jpeg|gif|webp|svg|ico|woff2?|ttf|otf)$).*)"],
+  matcher: [
+    "/((?!_next/static|_next/image|favicon\\.ico|api/|.*\\.(?:png|jpg|jpeg|gif|webp|svg|ico|woff2?|ttf|otf)$).*)",
+  ],
 };

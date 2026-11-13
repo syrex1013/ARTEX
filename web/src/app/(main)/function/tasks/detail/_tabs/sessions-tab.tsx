@@ -375,7 +375,7 @@ function SessionItem({
     <div
       className={cn(
         "group/session flex w-full items-center rounded-md transition-colors",
-        active ? "bg-accent text-accent-foreground" : "hover:bg-accent/50",
+        active ? "bg-accent text-accent-foreground shadow-[inset_2px_0_0_var(--primary)]" : "hover:bg-accent/50",
       )}
     >
       <button
@@ -385,7 +385,7 @@ function SessionItem({
       >
         {icon ?? <span className="size-3.5 shrink-0" />}
         {s.intent_id && (
-          <span className="shrink-0 rounded bg-muted px-1 py-0.5 font-mono text-[10px] tabular-nums text-muted-foreground">
+          <span className="shrink-0 rounded bg-muted px-1 py-0.5 font-mono text-[10px] text-muted-foreground tabular-nums">
             #{s.intent_id}
           </span>
         )}
@@ -395,7 +395,7 @@ function SessionItem({
           </Badge>
         )}
         <span
-          className={cn("min-w-0 flex-1 truncate text-sm font-medium", deleted && "text-muted-foreground line-through")}
+          className={cn("min-w-0 flex-1 truncate font-medium text-sm", deleted && "text-muted-foreground line-through")}
         >
           {displayTitle}
         </span>
@@ -406,13 +406,13 @@ function SessionItem({
         )}
         {hasPending && <ShieldAlertIcon className="size-3.5 shrink-0 text-amber-500" />}
         {!active && unread ? (
-          <span className="inline-flex min-w-4 items-center justify-center rounded-full bg-blue-500/15 px-1 text-[10px] font-medium tabular-nums text-blue-600 dark:text-blue-400">
+          <span className="inline-flex min-w-4 items-center justify-center rounded-full bg-tone-info/15 px-1 font-medium text-[10px] text-tone-info tabular-nums">
             {unread > 99 ? "99+" : unread}
           </span>
         ) : null}
         {s.live && (
-          <span className="inline-flex items-center gap-1 rounded bg-blue-500/15 px-1.5 py-0.5 text-[10px] font-medium text-blue-600 dark:text-blue-400">
-            <span className="size-1 animate-pulse rounded-full bg-blue-500" />
+          <span className="inline-flex items-center gap-1 rounded bg-tone-info/15 px-1.5 py-0.5 font-medium text-[10px] text-tone-info">
+            <span className="size-1 animate-pulse rounded-full bg-tone-info" />
             Live
           </span>
         )}
@@ -465,11 +465,11 @@ function WorkerAssetBadge({ assets }: { assets: IntentAsset[] }) {
           {displayAssets.map((asset) => (
             <div key={`${asset.intent_id}-${asset.asset_id}`} className="min-w-0">
               <div className="break-all font-mono text-xs">{asset.label.trim() || `#${asset.asset_id}`}</div>
-              <div className="mt-0.5 text-xs text-muted-foreground">
+              <div className="mt-0.5 text-muted-foreground text-xs">
                 {taskAssetTypeLabel(asset.type)} · {taskAssetSourceLabel(asset.source)}
                 {asset.inherited ? ` · from source task #${asset.source_task_id}` : ""}
               </div>
-              <div className="mt-0.5 [overflow-wrap:anywhere] text-xs">{asset.source_summary}</div>
+              <div className="mt-0.5 text-xs [overflow-wrap:anywhere]">{asset.source_summary}</div>
             </div>
           ))}
         </div>
@@ -533,6 +533,8 @@ export function SessionsTab({ taskId, taskPaused = false }: { taskId: string; ta
   const [sending, setSending] = React.useState(false);
   const [stopping, setStopping] = React.useState(false);
   const [mainChatRunning, setMainChatRunning] = React.useState<boolean | null>(null);
+  // Pending queued main-agent messages from the chatStatus poll; q.id is the cancel handle.
+  const [queuedTurns, setQueuedTurns] = React.useState<{ id: number; message: string }[]>([]);
   const [controllingIntent, setControllingIntent] = React.useState<string | null>(null);
   const [cancelIntent, setCancelIntent] = React.useState<Session | null>(null);
   const [cancelReason, setCancelReason] = React.useState("");
@@ -804,12 +806,16 @@ export function SessionsTab({ taskId, taskPaused = false }: { taskId: string; ta
   React.useEffect(() => {
     let alive = true;
     setMainChatRunning(null);
+    setQueuedTurns([]);
     const load = () => {
       const request = ++chatStatusRequestRef.current;
       return api
         .chatStatus(taskId)
-        .then(({ running }) => {
-          if (alive && chatStatusRequestRef.current === request) setMainChatRunning(running);
+        .then(({ running, queue }) => {
+          if (alive && chatStatusRequestRef.current === request) {
+            setMainChatRunning(running);
+            setQueuedTurns(queue ?? []);
+          }
         })
         .catch(() => {
           // Keep the last authoritative value. Before the first success, recent
@@ -1494,11 +1500,20 @@ export function SessionsTab({ taskId, taskPaused = false }: { taskId: string; ta
     void api.stopChat(taskId).finally(() => setStopping(false));
   }
 
+  // Cancels one queued main-agent turn; the persisted human turn stays in the
+  // transcript. Optimistic removal — the 2s poll restores the chip on failure.
+  function cancelQueued(qid: number) {
+    setQueuedTurns((qs) => qs.filter((q) => q.id !== qid));
+    api.cancelQueuedTaskChat(taskId, qid).catch((e) => toast.error(`Cancel failed: ${(e as Error).message}`));
+  }
+
   function send() {
     const text = input.trim();
     const atts = attachments;
     if (side.handleCommand(text, () => setInput(""))) return;
-    if ((!text && atts.length === 0) || sending || mainBusy) return;
+    // While the main agent is busy the message queues instead of being rejected —
+    // a 202 {status:"queued"} response; the chatStatus poll surfaces the chip.
+    if ((!text && atts.length === 0) || sending) return;
     // No optimistic echo: the backend persists+broadcasts the human turn before it
     // returns, so it streams back over SSE (worker="mainagent") with its real DB
     // seq — the transcript renders it from server data like every other step. Clear
@@ -1509,9 +1524,13 @@ export function SessionsTab({ taskId, taskPaused = false }: { taskId: string; ta
     chatStatusRequestRef.current++;
     api
       .chat(text, taskId, atts.length > 0 ? atts : undefined, active.seg ?? 0)
-      .then(({ mode }) => {
+      .then((r) => {
         chatStatusRequestRef.current++;
-        setMainChatRunning(mode === "llm");
+        if ("status" in r && r.status === "queued") {
+          toast.info("Queued — will run when the current turn finishes");
+        } else {
+          setMainChatRunning("mode" in r && r.mode === "llm");
+        }
       })
       .catch((e) => {
         setInput(text); // restore so the user doesn't lose their text / attachments
@@ -1585,7 +1604,7 @@ export function SessionsTab({ taskId, taskPaused = false }: { taskId: string; ta
                 onClick={() => setListOpen((open) => !open)}
                 aria-expanded={listOpen}
                 aria-controls="session-list-panel"
-                className="flex min-w-0 flex-1 items-center gap-1 text-left text-xs font-medium text-muted-foreground lg:pointer-events-none"
+                className="flex min-w-0 flex-1 items-center gap-1 text-left font-medium text-muted-foreground text-xs lg:pointer-events-none"
               >
                 <ChevronDownIcon
                   className={cn("size-3.5 shrink-0 transition-transform lg:hidden", !listOpen && "-rotate-90")}
@@ -1597,7 +1616,7 @@ export function SessionsTab({ taskId, taskPaused = false }: { taskId: string; ta
                       · {activeDisplayTitle}
                     </span>
                     {hiddenUnread > 0 && (
-                      <span className="inline-flex min-w-4 shrink-0 items-center justify-center rounded-full bg-blue-500/15 px-1 text-[10px] font-medium tabular-nums text-blue-600 lg:hidden dark:text-blue-400">
+                      <span className="inline-flex min-w-4 shrink-0 items-center justify-center rounded-full bg-tone-info/15 px-1 font-medium text-[10px] text-tone-info tabular-nums lg:hidden">
                         {hiddenUnread > 99 ? "99+" : hiddenUnread}
                       </span>
                     )}
@@ -1610,11 +1629,15 @@ export function SessionsTab({ taskId, taskPaused = false }: { taskId: string; ta
                     "inline-flex items-center gap-1 text-[10px]",
                     sseLive ? "text-emerald-500" : "text-amber-500",
                   )}
-                  title={sseLive ? "Live connection healthy" : "Live connection lost, reconnecting automatically (history still visible)"}
+                  title={
+                    sseLive
+                      ? "Live connection healthy"
+                      : "Live connection lost, reconnecting automatically (history still visible)"
+                  }
                 >
                   {sseLive ? (
                     <>
-                      <span className="size-1 animate-pulse rounded-full bg-emerald-500" />
+                      <span className="size-1 animate-pulse rounded-full bg-tone-success" />
                       Live
                     </>
                   ) : (
@@ -1629,7 +1652,7 @@ export function SessionsTab({ taskId, taskPaused = false }: { taskId: string; ta
             {taskTokens && (
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <div className="mt-2 flex min-w-0 flex-wrap items-center gap-1 text-xs text-muted-foreground">
+                  <div className="mt-2 flex min-w-0 flex-wrap items-center gap-1 text-muted-foreground text-xs">
                     <span>Task total</span>
                     <span>·</span>
                     <TokenMetrics
@@ -1640,8 +1663,8 @@ export function SessionsTab({ taskId, taskPaused = false }: { taskId: string; ta
                   </div>
                 </TooltipTrigger>
                 <TooltipContent>
-                  Input {taskTokens.input_tokens.toLocaleString()} · Output {taskTokens.output_tokens.toLocaleString()} ·
-                  Cache read {taskTokens.cache_read_tokens.toLocaleString()} · Cache write{" "}
+                  Input {taskTokens.input_tokens.toLocaleString()} · Output {taskTokens.output_tokens.toLocaleString()}{" "}
+                  · Cache read {taskTokens.cache_read_tokens.toLocaleString()} · Cache write{" "}
                   {taskTokens.cache_write_tokens.toLocaleString()}
                 </TooltipContent>
               </Tooltip>
@@ -1651,7 +1674,7 @@ export function SessionsTab({ taskId, taskPaused = false }: { taskId: string; ta
             id="session-list-panel"
             type="auto"
             className={cn(
-              "min-h-0 flex-1 [&_[data-slot=scroll-area-viewport]>div]:block!",
+              "[&_[data-slot=scroll-area-viewport]>div]:block! min-h-0 flex-1",
               !listOpen && "max-lg:hidden",
             )}
           >
@@ -1662,7 +1685,7 @@ export function SessionsTab({ taskId, taskPaused = false }: { taskId: string; ta
                 const Meta = roleMeta[role];
                 return (
                   <div key={role} className="flex flex-col gap-0.5">
-                    <div className="flex items-center gap-1.5 px-2 py-1 text-xs font-medium text-muted-foreground">
+                    <div className="flex items-center gap-1.5 px-2 py-1 font-medium text-muted-foreground text-xs">
                       <Meta.icon className="size-3.5" />
                       {Meta.label}
                       {role === "mainagent" && (
@@ -1713,7 +1736,7 @@ export function SessionsTab({ taskId, taskPaused = false }: { taskId: string; ta
                         type="button"
                         onClick={loadOlderIntents}
                         disabled={loadingOlderIntents}
-                        className="mt-0.5 flex items-center justify-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-accent/50"
+                        className="mt-0.5 flex items-center justify-center gap-1 rounded-md px-2 py-1 text-muted-foreground text-xs hover:bg-accent/50"
                       >
                         {loadingOlderIntents ? (
                           <Loader2Icon className="size-3.5 animate-spin" />
@@ -1727,7 +1750,7 @@ export function SessionsTab({ taskId, taskPaused = false }: { taskId: string; ta
                 );
               })}
               {mainLoaded && !workerSessions.length && (
-                <div className="px-2 py-1 text-xs text-muted-foreground">No running worker sessions.</div>
+                <div className="px-2 py-1 text-muted-foreground text-xs">No running worker sessions.</div>
               )}
             </div>
           </ScrollArea>
@@ -1738,7 +1761,7 @@ export function SessionsTab({ taskId, taskPaused = false }: { taskId: string; ta
           side={side}
           label={active.role === "worker" ? `Worker #${active.intent_id} · ${activeDisplayTitle}` : activeDisplayTitle}
         >
-          <div className="flex min-h-0 flex-1 min-w-0 flex-col overflow-hidden rounded-lg border bg-card">
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-lg border bg-card">
             <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 border-b px-3 py-2 sm:px-4 sm:py-2.5">
               {(() => {
                 const isWorker = active.role === "worker";
@@ -1746,7 +1769,7 @@ export function SessionsTab({ taskId, taskPaused = false }: { taskId: string; ta
                 // Worker: the intent moved into the transcript as a message, so the
                 // header shows a stable generic label (intent JSON stays on hover).
                 const title = isWorker ? "Worker execution session" : active.title;
-                const titleEl = <span className="min-w-0 truncate text-sm font-medium">{title}</span>;
+                const titleEl = <span className="min-w-0 truncate font-medium text-sm">{title}</span>;
                 return meta?.json ? (
                   <Tooltip>
                     <TooltipTrigger asChild>{titleEl}</TooltipTrigger>
@@ -1766,7 +1789,9 @@ export function SessionsTab({ taskId, taskPaused = false }: { taskId: string; ta
                       variant="outline"
                       className="max-w-28 shrink-0 font-normal"
                       aria-label={
-                        activeResolution.available ? `Current config: ${resolutionLabel(activeResolution)}` : "Model unavailable"
+                        activeResolution.available
+                          ? `Current config: ${resolutionLabel(activeResolution)}`
+                          : "Model unavailable"
                       }
                     >
                       <span className="truncate">
@@ -1786,8 +1811,8 @@ export function SessionsTab({ taskId, taskPaused = false }: { taskId: string; ta
                 <Badge variant="outline">Source task #{active.source_task_id} · read-only history</Badge>
               )}
               {active.live && (
-                <span className="inline-flex items-center gap-1 rounded bg-blue-500/15 px-1.5 py-0.5 text-[10px] font-medium text-blue-600 dark:text-blue-400">
-                  <span className="size-1 animate-pulse rounded-full bg-blue-500" />
+                <span className="inline-flex items-center gap-1 rounded bg-tone-info/15 px-1.5 py-0.5 font-medium text-[10px] text-tone-info">
+                  <span className="size-1 animate-pulse rounded-full bg-tone-info" />
                   Live
                 </span>
               )}
@@ -1796,7 +1821,7 @@ export function SessionsTab({ taskId, taskPaused = false }: { taskId: string; ta
                   ↑ Earlier history
                 </span>
               )}
-              <div className="ml-auto flex min-w-0 max-w-full items-center justify-end gap-x-3 gap-y-1 text-xs text-muted-foreground max-sm:w-full max-sm:flex-wrap">
+              <div className="ml-auto flex min-w-0 max-w-full items-center justify-end gap-x-3 gap-y-1 text-muted-foreground text-xs max-sm:w-full max-sm:flex-wrap">
                 {tokenTotal.any && (
                   <Tooltip>
                     {/* Mobile uses short labels (In/Cache/Out): long labels wrap this row onto two lines, further squeezing the transcript. */}
@@ -1839,12 +1864,13 @@ export function SessionsTab({ taskId, taskPaused = false }: { taskId: string; ta
               const dm = active.role === "worker" ? sessionMeta.get(active.id) : undefined;
               if (!dm?.deleted) return null;
               return (
-                <div className="flex items-start gap-2 border-b border-destructive/30 bg-destructive/5 px-4 py-2.5 text-xs">
+                <div className="flex items-start gap-2 border-destructive/30 border-b bg-destructive/5 px-4 py-2.5 text-xs">
                   <Trash2Icon className="mt-0.5 size-3.5 shrink-0 text-destructive" />
                   <div className="min-w-0">
                     <span className="font-medium text-destructive">This intent was deleted by the user</span>
                     <span className="text-muted-foreground">
-                      (execution stopped and the planner notified; the intent and its output are kept — view the history below)
+                      (execution stopped and the planner notified; the intent and its output are kept — view the history
+                      below)
                     </span>
                     {dm.deleteReason && (
                       <p className="mt-1 break-words text-foreground">
@@ -1870,21 +1896,21 @@ export function SessionsTab({ taskId, taskPaused = false }: { taskId: string; ta
             to block so wide/unbreakable steps (long commands, code, URLs) can't blow
             out the width and defeat the truncation below — the transcript wraps to
             the panel instead of overflowing horizontally. */}
-            <ScrollArea type="auto" className="min-h-0 min-w-0 flex-1 [&_[data-slot=scroll-area-viewport]>div]:block!">
+            <ScrollArea type="auto" className="[&_[data-slot=scroll-area-viewport]>div]:block! min-h-0 min-w-0 flex-1">
               <div className="min-w-0 max-w-full p-4" ref={contentRef}>
                 {activeState?.loadingMore && (
-                  <div className="flex items-center justify-center gap-2 pb-2 text-xs text-muted-foreground">
+                  <div className="flex items-center justify-center gap-2 pb-2 text-muted-foreground text-xs">
                     <Loader2Icon className="size-3.5 animate-spin" />
                     Loading earlier history…
                   </div>
                 )}
                 {showLoader ? (
-                  <div className="flex items-center gap-2 pl-9 text-xs text-muted-foreground">
+                  <div className="flex items-center gap-2 pl-9 text-muted-foreground text-xs">
                     <Loader2Icon className="size-3.5 animate-spin" />
                     Loading activity stream…
                   </div>
                 ) : activeState?.error ? (
-                  <div className="flex items-center gap-2 pl-9 text-xs text-red-500">
+                  <div className="flex items-center gap-2 pl-9 text-red-500 text-xs">
                     <CircleXIcon className="size-3.5" />
                     Failed to load: {activeState.error}
                     <Button
@@ -1905,14 +1931,37 @@ export function SessionsTab({ taskId, taskPaused = false }: { taskId: string; ta
                     focusedSeq={focusHistory.ready ? approvalFocus.state?.source?.seq : undefined}
                   />
                 ) : (
-                  <div className="pl-9 text-xs text-muted-foreground">
-                    {isMain ? "No conversation yet. Message the main agent below to steer exploration or step into the flow." : "No activity records."}
+                  <div className="pl-9 text-muted-foreground text-xs">
+                    {isMain
+                      ? "No conversation yet. Message the main agent below to steer exploration or step into the flow."
+                      : "No activity records."}
                   </div>
                 )}
               </div>
             </ScrollArea>
             {isMain ? (
               <div className="border-t p-3">
+                {queuedTurns.length > 0 && (
+                  <div className="mb-2 flex flex-wrap gap-1.5">
+                    {queuedTurns.map((q) => (
+                      <div
+                        key={q.id}
+                        className="flex items-center gap-1.5 rounded-md border bg-muted/50 px-2 py-1 text-xs"
+                        title={q.message}
+                      >
+                        <span className="max-w-[200px] truncate">Queued: {q.message}</span>
+                        <button
+                          type="button"
+                          className="ml-0.5 text-muted-foreground hover:text-foreground"
+                          onClick={() => cancelQueued(q.id)}
+                          title="Cancel queued message"
+                        >
+                          <XIcon className="size-3" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
                 {attachments.length > 0 && (
                   <div className="mb-2 flex flex-wrap gap-1.5">
                     {attachments.map((a) => (
@@ -1949,7 +1998,9 @@ export function SessionsTab({ taskId, taskPaused = false }: { taskId: string; ta
                     rows={1}
                     aria-label="Message the main agent"
                     placeholder={
-                      mainBusy ? "The main agent is running; type /btw to ask a side question…" : "Message the main agent; @ to reference findings, assets, and more…"
+                      mainBusy
+                        ? "The main agent is running; type /btw to ask a side question…"
+                        : "Message the main agent; @ to reference findings, assets, and more…"
                     }
                     value={input}
                     disabled={sending}
@@ -1977,7 +2028,7 @@ export function SessionsTab({ taskId, taskPaused = false }: { taskId: string; ta
                         <ArrowUpIcon />
                       </InputGroupButton>
                     )}
-                    {mainBusy ? (
+                    {mainBusy && (
                       <InputGroupButton
                         className="ml-auto"
                         size="icon-xs"
@@ -1989,19 +2040,19 @@ export function SessionsTab({ taskId, taskPaused = false }: { taskId: string; ta
                       >
                         {stopping ? <Loader2Icon className="animate-spin" /> : <SquareIcon />}
                       </InputGroupButton>
-                    ) : (
-                      <InputGroupButton
-                        className="ml-auto"
-                        size="icon-xs"
-                        variant="default"
-                        onClick={send}
-                        disabled={(!input.trim() && attachments.length === 0) || sending}
-                        title="Send message"
-                        aria-label="Send message"
-                      >
-                        {sending ? <Loader2Icon className="animate-spin" /> : <ArrowUpIcon />}
-                      </InputGroupButton>
                     )}
+                    {/* Sends even while busy: the backend queues the message instead of rejecting it. */}
+                    <InputGroupButton
+                      className={cn(!mainBusy && "ml-auto")}
+                      size="icon-xs"
+                      variant="default"
+                      onClick={send}
+                      disabled={(!input.trim() && attachments.length === 0) || sending}
+                      title={mainBusy ? "Queue message" : "Send message"}
+                      aria-label={mainBusy ? "Queue message" : "Send message"}
+                    >
+                      {sending ? <Loader2Icon className="animate-spin" /> : <ArrowUpIcon />}
+                    </InputGroupButton>
                   </InputGroupAddon>
                 </InputGroup>
               </div>
@@ -2032,7 +2083,7 @@ export function SessionsTab({ taskId, taskPaused = false }: { taskId: string; ta
                   <InputGroupAddon align="block-end">
                     <span
                       className={cn(
-                        "px-1 text-[10px] tabular-nums text-muted-foreground",
+                        "px-1 text-[10px] text-muted-foreground tabular-nums",
                         workerMessageCharCount(workerMessage) > MAX_WORKER_MESSAGE_CHARS && "text-destructive",
                       )}
                     >
@@ -2118,17 +2169,21 @@ export function SessionsTab({ taskId, taskPaused = false }: { taskId: string; ta
           <AlertDialogContent className="max-w-[min(32rem,calc(100vw-2rem))]">
             <AlertDialogHeader>
               <AlertDialogTitle>Delete Worker #{cancelIntent?.intent_id}?</AlertDialogTitle>
-              <AlertDialogDescription className="break-words whitespace-normal">
+              <AlertDialogDescription className="whitespace-normal break-words">
                 {deleteMode === "hard" ? (
                   <>
-                    <strong>Hard delete</strong> physically removes this intent and the downstream nodes <strong>supported solely by it</strong>
-                    (cascading to the leaves to avoid orphaned data); shared nodes, goals, and the task's root facts are kept.
-                    <strong>This action is irreversible.</strong> The planner is notified of the deletion and re-plans accordingly.
+                    <strong>Hard delete</strong> physically removes this intent and the downstream nodes{" "}
+                    <strong>supported solely by it</strong>
+                    (cascading to the leaves to avoid orphaned data); shared nodes, goals, and the task's root facts are
+                    kept.
+                    <strong>This action is irreversible.</strong> The planner is notified of the deletion and re-plans
+                    accordingly.
                   </>
                 ) : (
                   <>
-                    <strong>Soft delete</strong> marks the intent as "deleted" and records the reason; the intent node, execution records,
-                    registered facts, and findings <strong>are all kept</strong>. The planner receives "intent deleted by user + reason" and re-plans accordingly.
+                    <strong>Soft delete</strong> marks the intent as "deleted" and records the reason; the intent node,
+                    execution records, registered facts, and findings <strong>are all kept</strong>. The planner
+                    receives "intent deleted by user + reason" and re-plans accordingly.
                   </>
                 )}
               </AlertDialogDescription>
@@ -2144,7 +2199,7 @@ export function SessionsTab({ taskId, taskPaused = false }: { taskId: string; ta
                   )}
                 >
                   <div className="font-medium">Soft delete</div>
-                  <div className="text-xs text-muted-foreground">Data kept, traceable</div>
+                  <div className="text-muted-foreground text-xs">Data kept, traceable</div>
                 </button>
                 <button
                   type="button"
@@ -2155,11 +2210,11 @@ export function SessionsTab({ taskId, taskPaused = false }: { taskId: string; ta
                   )}
                 >
                   <div className="font-medium">Hard delete</div>
-                  <div className="text-xs text-muted-foreground">Cascade removal, irreversible</div>
+                  <div className="text-muted-foreground text-xs">Cascade removal, irreversible</div>
                 </button>
               </div>
               <div className="grid gap-2">
-                <label htmlFor="cancel-reason" className="text-sm font-medium">
+                <label htmlFor="cancel-reason" className="font-medium text-sm">
                   Deletion reason (required)
                 </label>
                 <Textarea
@@ -2190,8 +2245,9 @@ export function SessionsTab({ taskId, taskPaused = false }: { taskId: string; ta
           <AlertDialogContent className="max-w-[min(32rem,calc(100vw-2rem))]">
             <AlertDialogHeader>
               <AlertDialogTitle>Start a new session?</AlertDialogTitle>
-              <AlertDialogDescription className="break-words whitespace-normal">
-                The current session will be archived (you can switch back anytime) and the main agent continues with a clean context. The task's graph, assets, and goals are unaffected.
+              <AlertDialogDescription className="whitespace-normal break-words">
+                The current session will be archived (you can switch back anytime) and the main agent continues with a
+                clean context. The task's graph, assets, and goals are unaffected.
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>

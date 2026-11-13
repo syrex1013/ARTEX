@@ -2,6 +2,7 @@
 
 import * as React from "react";
 
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 
@@ -41,15 +42,30 @@ import type { LLMProfile, Task } from "@/lib/types";
 
 import { AssetsTab } from "./_tabs/assets-tab";
 import { BroadcastTab } from "./_tabs/broadcast-tab";
-import { CoverageGraphTab } from "./_tabs/coverage-graph-tab";
+
+const CoverageGraphTab = dynamic(() => import("./_tabs/coverage-graph-tab").then((module) => module.CoverageGraphTab), {
+  loading: () => <p role="status">Loading tab…</p>,
+});
+
 import { CredentialsTab } from "./_tabs/credentials-tab";
 import { FindingsTab } from "./_tabs/findings-tab";
-import { GraphTab } from "./_tabs/graph-tab";
+
+const GraphTab = dynamic(() => import("./_tabs/graph-tab").then((module) => module.GraphTab), {
+  loading: () => <p role="status">Loading tab…</p>,
+});
+
 import { InterceptTab } from "./_tabs/intercept-tab";
 import { OverviewTab } from "./_tabs/overview-tab";
-import { ReportTab } from "./_tabs/report-tab";
-import { RetestsTab } from "./_tabs/retests-tab";
-import { SessionsTab } from "./_tabs/sessions-tab";
+
+const ReportTab = dynamic(() => import("./_tabs/report-tab").then((module) => module.ReportTab), {
+  loading: () => <p role="status">Loading tab…</p>,
+});
+const RetestsTab = dynamic(() => import("./_tabs/retests-tab").then((module) => module.RetestsTab), {
+  loading: () => <p role="status">Loading tab…</p>,
+});
+const SessionsTab = dynamic(() => import("./_tabs/sessions-tab").then((module) => module.SessionsTab), {
+  loading: () => <p role="status">Loading tab…</p>,
+});
 
 const TABS = [
   { value: "sessions", label: "Sessions" },
@@ -143,7 +159,7 @@ function TaskLLMControl({ task, profiles, onUpdated }: { task: Task; profiles: L
       setOpen(false);
       onUpdated();
     } catch (error) {
-      toast.error("Update failed: " + (error as Error).message);
+      toast.error(`Update failed: ${(error as Error).message}`);
     } finally {
       setSaving(false);
     }
@@ -174,7 +190,8 @@ function TaskLLMControl({ task, profiles, onUpdated }: { task: Task; profiles: L
             <CircleAlertIcon />
             <AlertTitle>Configuration chain quota exhausted</AlertTitle>
             <AlertDescription>
-              {task.llm_failover_reason ?? "All selected configs were judged to be out of quota. Saving the chain resets the failure state."}
+              {task.llm_failover_reason ??
+                "All selected configs were judged to be out of quota. Saving the chain resets the failure state."}
             </AlertDescription>
           </Alert>
         )}
@@ -285,7 +302,7 @@ function TaskDetailInner() {
       setPaused(next);
       toast.success(next ? "Exploration paused" : "Exploration resumed");
     } catch (e) {
-      toast.error("Operation failed: " + (e as Error).message);
+      toast.error(`Operation failed: ${(e as Error).message}`);
     }
   }
 
@@ -305,7 +322,9 @@ function TaskDetailInner() {
   if (!task) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-3 p-10 text-center">
-        <p className="text-muted-foreground">{loaded ? `Task ${id} was deleted, archived, or does not exist` : "Loading…"}</p>
+        <p className="text-muted-foreground">
+          {loaded ? `Task ${id} was deleted, archived, or does not exist` : "Loading…"}
+        </p>
         {loaded && (
           <Button asChild variant="outline">
             <Link href="/function/tasks">
@@ -360,10 +379,10 @@ function TaskDetailInner() {
               <ArrowLeftIcon />
             </Link>
           </Button>
-          <h1 className="min-w-0 flex-1 truncate text-sm font-semibold" title={task.name || task.description}>
+          <h1 className="min-w-0 flex-1 truncate font-semibold text-base" title={task.name || task.description}>
             {task.name || task.description}
           </h1>
-          <code className="hidden rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-muted-foreground sm:inline">
+          <code className="hidden rounded bg-muted px-1.5 py-0.5 font-mono text-muted-foreground text-xs sm:inline">
             {task.id}
           </code>
           <Separator orientation="vertical" className="mx-1 hidden h-4 sm:block" />
@@ -376,8 +395,9 @@ function TaskDetailInner() {
                 <AlertDialogHeader>
                   <AlertDialogTitle>Archive task #{task.id}?</AlertDialogTitle>
                   <AlertDialogDescription>
-                    The task graph, related records, exclusive assets and traffic, working files, and LLM
-                    history will be compressed into cold storage. Once archiving completes, restore it from the "Archived" tab of the task list.
+                    The task graph, related records, exclusive assets and traffic, working files, and LLM history will
+                    be compressed into cold storage. Once archiving completes, restore it from the "Archived" tab of the
+                    task list.
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
@@ -399,7 +419,7 @@ function TaskDetailInner() {
             {controlLabel}
           </Button>
         </div>
-        <p className="truncate text-xs text-muted-foreground">{task.goal}</p>
+        <p className="line-clamp-2 text-muted-foreground text-xs" title={task.goal}>{task.goal}</p>
         {/* Tabs */}
         <div className="no-scrollbar min-w-0 overflow-x-auto">
           <TabsList variant="default" className="min-w-max">
@@ -407,7 +427,7 @@ function TaskDetailInner() {
               <TabsTrigger key={t.value} value={t.value}>
                 {t.label}
                 {t.value === "intercept" && interceptPendingCount > 0 && (
-                  <span className="ml-1.5 inline-flex h-4 min-w-[16px] items-center justify-center rounded-full bg-amber-500 px-1 text-[10px] font-semibold leading-none text-white">
+                  <span className="ml-1.5 inline-flex h-4 min-w-[16px] items-center justify-center rounded-full bg-tone-warn px-1 font-semibold text-[10px] text-white leading-none">
                     {interceptPendingCount > 99 ? "99+" : interceptPendingCount}
                   </span>
                 )}

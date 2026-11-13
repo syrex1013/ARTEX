@@ -20,8 +20,6 @@ import { usePreferencesStore } from "@/stores/preferences/preferences-provider";
 
 import { NavMain } from "./nav-main";
 import { NavUser } from "./nav-user";
-import { SidebarSupportCard } from "./sidebar-support-card";
-
 
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const currentUser = useCurrentUser();
@@ -52,7 +50,18 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         </SidebarMenu>
       </SidebarHeader>
       <SidebarContent>
-        <NavMain items={sidebarItems} />
+        <NavMain
+          items={
+            currentUser.role === "admin"
+              ? sidebarItems
+              : sidebarItems.slice(0, 1).map((group) => ({
+                  ...group,
+                  items: group.items.filter((item) =>
+                    ["engagements", "reports", "discussion", "account"].includes(item.id),
+                  ),
+                }))
+          }
+        />
         {/* <NavDocuments items={data.documents} /> */}
         {/* <NavSecondary items={data.navSecondary} className="mt-auto" /> */}
       </SidebarContent>

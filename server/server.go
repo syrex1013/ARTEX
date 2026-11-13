@@ -77,6 +77,16 @@ type Server struct {
 	// concurrent messages don't corrupt the shared exp<id>-main transcript.
 	chatMu   sync.Mutex
 	chatBusy map[string]bool
+	// chatQueue holds messages that arrived while a task's main-agent turn (or a
+	// conversation's run) was in flight; they run in order when the current turn
+	// finishes. In-memory on purpose (matches chatBusy): a restart drops queued
+	// messages, the same way the P3 trigger queue drops pending fires.
+	chatQueue map[string][]*queuedChat
+	// convQueue is the same idea for chat-page conversations: messages that arrived
+	// while a conversation run was in flight, launched FIFO when it finishes.
+	convQueue map[string][]*queuedConv
+	// sliver manages the optional Sliver C2 operator connection (see sliver.go).
+	sliver *sliverManager
 	// chatCancel holds the cancel func for each in-flight conversation run (keyed by
 	// convBusyKey), so a manual stop can abort JUST that session's agent run. Set/
 	// cleared alongside chatBusy under chatMu. Aborting a run does NOT touch the P3
@@ -158,8 +168,8 @@ func New(ctx context.Context, m *Manager, skillDir string, dataDir string, keyDi
 		log.Fatalf("[auth] JWT key: %v", err)
 	}
 	s := &Server{m: m, engine: NewEngine(m), ctx: ctx, skillDir: skillDir, jwtKey: key, chatBusy: map[string]bool{},
-		chatCancel: map[string]context.CancelCauseFunc{}, triggerQ: map[string][]triggeredRun{},
-		triggerActive: map[string]int{}, triggerCfg: map[string]triggerBehavior{},
+		chatCancel: map[string]context.CancelCauseFunc{}, chatQueue: map[string][]*queuedChat{}, convQueue: map[string][]*queuedConv{}, triggerQ: map[string][]triggeredRun{},
+		triggerActive: map[string]int{}, triggerCfg: map[string]triggerBehavior{}, sliver: newSliverManager(m.pg),
 		profChatAgents: map[int64]*agent.ChatAgent{},
 		provByProfile:  map[int64]*provEntry{}, llmHealth: newLLMHealthRegistry(m.pg),
 		taskAgents: map[string]*taskAgentBundle{}, archiveWake: make(chan struct{}, 1),
@@ -281,6 +291,7 @@ func New(ctx context.Context, m *Manager, skillDir string, dataDir string, keyDi
 	go s.reconcileConcurrency()
 	s.startTaskArchiveWorker()
 	s.wireInterceptReviewer() // LLM fallback approval: commands that hit no interception rule go to the model for judgment
+	s.initCollaboration()
 	return s
 }
 
@@ -681,6 +692,8 @@ func (s *Server) chatAgentRef() *agent.ChatAgent {
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	s.registerSideRoutes(mux)
+	s.registerAccountRoutes(mux)
+	s.registerCollaborationRoutes(mux)
 
 	// Auth routes — exempt from JWT check (handled in requireAuth)
 	mux.HandleFunc("GET /api/auth/status", s.authStatus)
@@ -690,6 +703,8 @@ func (s *Server) Handler() http.Handler {
 
 	mux.HandleFunc("GET /api/health", s.health)
 	mux.HandleFunc("GET /api/stats", s.stats)
+	mux.HandleFunc("GET /api/dashboard/findings", s.dashboardFindings)
+	mux.HandleFunc("GET /api/dashboard/tasks", s.dashboardTasks)
 	mux.HandleFunc("GET /api/logs", s.getLogs)
 	mux.HandleFunc("GET /api/logs/history", s.getLogsHistory)
 	mux.HandleFunc("GET /api/logs/stream", s.streamLogs)
@@ -850,6 +865,19 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/chat/upload", s.chatUpload) // upload method 1: files land in uploads/ under the conversation/task work dir
 	mux.HandleFunc("GET /api/tasks/{id}/chat/status", s.taskChatStatus)
 	mux.HandleFunc("POST /api/tasks/{id}/chat/stop", s.stopChat)
+	mux.HandleFunc("DELETE /api/tasks/{id}/chat/queue/{qid}", s.cancelQueuedTaskChat)
+
+	// --- Sliver C2 (operator gRPC client; see sliver.go) ---
+	mux.HandleFunc("GET /api/sliver", s.sliverStatus)
+	mux.HandleFunc("PUT /api/sliver", s.sliverSaveConfig)
+	mux.HandleFunc("DELETE /api/sliver", s.sliverClearConfig)
+	mux.HandleFunc("GET /api/sliver/sessions", s.sliverSessions)
+	mux.HandleFunc("GET /api/sliver/beacons", s.sliverBeacons)
+	mux.HandleFunc("GET /api/sliver/beacons/{id}/tasks", s.sliverBeaconTasks)
+	mux.HandleFunc("GET /api/sliver/jobs", s.sliverJobs)
+	mux.HandleFunc("POST /api/sliver/jobs", s.sliverStartListener)
+	mux.HandleFunc("DELETE /api/sliver/jobs/{id}", s.sliverKillJob)
+	mux.HandleFunc("POST /api/sliver/interact", s.sliverInteract)
 
 	// --- Admin API (PostgreSQL data source; new database & admin console plan) ---
 	mux.HandleFunc("DELETE /api/tasks/{id}", s.pgDeleteTask)
@@ -864,6 +892,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/conversations/{id}/messages", s.pgConversationMessages)
 	mux.HandleFunc("POST /api/conversations/{id}/messages", s.pgSendConversationMessage)
 	mux.HandleFunc("POST /api/conversations/{id}/stop", s.pgStopConversation)
+	mux.HandleFunc("DELETE /api/conversations/{id}/queue/{qid}", s.cancelQueuedConvMessage)
 	mux.HandleFunc("GET /api/conversations/{id}/messages/{seq}", s.pgConversationMsgDetail)
 	mux.HandleFunc("GET /api/conversations/{id}/target-pins", s.convListTargetPins)
 	mux.HandleFunc("POST /api/conversations/{id}/target-pins/{pid}/revoke", s.convRevokeTargetPin)
@@ -1582,16 +1611,17 @@ func truncateReply(s string) string {
 }
 
 type createTaskReq struct {
+	EngagementID         int64    `json:"engagement_id"`
 	Name                 string   `json:"name,omitempty"` // optional task name; omitted/empty = unnamed
 	CategoryID           *int64   `json:"category_id,omitempty"`
 	Description          string   `json:"description"`
 	Goal                 string   `json:"goal"`
-	LLMProfileID         *int64   `json:"llm_profile_id,omitempty"`    // the LLM profile to run this task on; omitted/null = use the active profile
-	LLMProfileIDs        []int64  `json:"llm_profile_ids,omitempty"`   // ordered task-level profile chain; the first entry takes effect initially
-	SourceTaskIDs        []string `json:"source_task_ids,omitempty"`   // direct, read-only inherited source tasks
-	CompanyIDs           []int64  `json:"company_ids,omitempty"`       // links the company scope and snapshots its current assets; does not copy assets or force intent generation
+	LLMProfileID         *int64   `json:"llm_profile_id,omitempty"`  // the LLM profile to run this task on; omitted/null = use the active profile
+	LLMProfileIDs        []int64  `json:"llm_profile_ids,omitempty"` // ordered task-level profile chain; the first entry takes effect initially
+	SourceTaskIDs        []string `json:"source_task_ids,omitempty"` // direct, read-only inherited source tasks
+	CompanyIDs           []int64  `json:"company_ids,omitempty"`     // links the company scope and snapshots its current assets; does not copy assets or force intent generation
 	TimeoutSeconds       int      `json:"timeout_seconds"`
-	LLMRotate            *bool    `json:"llm_rotate"`             // task-level timeout (seconds); 0/omitted = no limit
+	LLMRotate            *bool    `json:"llm_rotate"`                  // task-level timeout (seconds); 0/omitted = no limit
 	PlanHeartbeatSeconds int      `json:"plan_heartbeat_seconds"`      // planner heartbeat interval (seconds); 0/omitted = default 600 (10min); floor = default = 600, lower values are raised to 600
 	PlanQuietMode        *bool    `json:"plan_quiet_mode,omitempty"`   // planner quiet-mode switch (#86); omitted = default on; false = edge rounds always plan
 	TargetGate           *bool    `json:"target_gate,omitempty"`       // approval gate for asset targets, opt-in; omitted/null = off
@@ -1665,7 +1695,8 @@ func (s *Server) createTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	t, err := s.m.CreateTaskWithOptions(req.Description, req.Goal, db.TaskCreateOptions{
-		Name: strings.TrimSpace(req.Name), CategoryID: req.CategoryID,
+		EngagementID: req.EngagementID,
+		Name:         strings.TrimSpace(req.Name), CategoryID: req.CategoryID,
 		SourceTaskIDs: sourceIDs, CompanyIDs: req.CompanyIDs, LLMProfileIDs: req.LLMProfileIDs,
 		TimeoutSeconds: req.TimeoutSeconds, PlanHeartbeatSeconds: req.PlanHeartbeatSeconds, PlanQuietMode: req.PlanQuietMode,
 		CoverageEnabled: req.CoverageEnabled,
@@ -3842,6 +3873,29 @@ func (s *Server) mainSessions(w http.ResponseWriter, r *http.Request) {
 // newMainSession starts a fresh main-agent conversation segment. Only the segment
 // counter advances — the task's exploration graph, assets and goal are untouched, so
 // the main agent continues over the same task with a clean transcript/context.
+// queuedChat is one message waiting for the task's main agent to finish its current
+// turn. The human turn is persisted immediately (emitActivity at enqueue time), so
+// only the launch bookkeeping waits; qid is the persisted activity's Seq.
+type queuedChat struct {
+	qid          int64
+	agentMessage string
+	message      string
+	attachments  []chatAttachment
+	seg          int
+}
+
+// queuedConv is one chat-page message waiting for the conversation's current run
+// to finish. The human turn row is persisted at enqueue time; only the agent
+// launch waits.
+type queuedConv struct {
+	conv         *db.Conversation
+	busyKey      string
+	agentMessage string
+	message      string
+	attachments  []chatAttachment
+	qid          int64 // persisted human-turn activity id, the cancel handle
+}
+
 func (s *Server) newMainSession(w http.ResponseWriter, r *http.Request) {
 	t := s.m.ResolveTask(r.URL.Query().Get("task"))
 	if t == nil {
@@ -3885,46 +3939,91 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	status, position := s.admitTaskChat(t, agentMessage, req.Message, req.Attachments, segArg(req.Seg))
+	switch status {
+	case "conflict":
+		writeErr(w, 409, "task is being deleted; cannot send a new message")
+		return
+	case "queued":
+		writeJSON(w, 202, map[string]any{"status": "queued", "position": position})
+		return
+	case "rule":
+		writeJSON(w, 200, map[string]any{"reply": position.(string), "mode": "rule"})
+		return
+	}
+	writeJSON(w, 202, map[string]any{"status": "accepted", "mode": "llm"})
+}
+
+// segArg normalizes the optional seg pointer: nil or negative = newest segment (0).
+func segArg(seg *int) int {
+	if seg != nil && *seg >= 0 {
+		return *seg
+	}
+	return 0
+}
+
+// admitTaskChat is the serialized admission for one main-agent turn on a task.
+// If a turn is already running the message is queued (FIFO) and "queued" is
+// returned with its 1-based position; the queued turn launches when the current
+// one finishes (see finishTaskChat). "rule" carries the rule-mode reply text.
+func (s *Server) admitTaskChat(t *Task, agentMessage, message string, atts []chatAttachment, seg int) (string, any) {
 	// Admission is serialized with deletion's chat cancellation. Mark every chat
 	// turn busy before its first activity/file write, including rule-mode turns.
 	// If deletion wins the race, the second barrier check rejects this request.
 	s.chatMu.Lock()
 	if s.engine.IsDeleting(t.ID) {
 		s.chatMu.Unlock()
-		writeErr(w, 409, "task is being deleted; cannot send a new message")
-		return
+		return "conflict", nil
 	}
 	if s.chatBusy[t.ID] {
+		q := &queuedChat{agentMessage: agentMessage, message: message, attachments: atts, seg: seg}
+		s.chatQueue[t.ID] = append(s.chatQueue[t.ID], q)
+		position := len(s.chatQueue[t.ID])
 		s.chatMu.Unlock()
-		writeErr(w, 409, "the main agent is still processing the previous message, please wait")
-		return
+		// Persist + broadcast the human turn now so the transcript shows it in order;
+		// the agent answer follows when the queued turn launches.
+		s.emitTaskHumanTurn(t, message, atts, seg, q)
+		return "queued", position
 	}
 	ctx, cancel := context.WithCancelCause(s.ctx)
-	ctx = intercept.WithReviewContext(ctx, "", intercept.ReviewBackground{Source: intercept.BackgroundUserMessage, Text: req.Message})
+	ctx = intercept.WithReviewContext(ctx, "", intercept.ReviewBackground{Source: intercept.BackgroundUserMessage, Text: message})
 	s.chatBusy[t.ID] = true
 	s.chatCancel[t.ID] = cancel
 	s.chatMu.Unlock()
+	return s.launchTaskChatTurn(t, ctx, cancel, agentMessage, message, atts, seg, nil)
+}
 
-	// The turn belongs to whichever main-agent segment the user is chatting in (any
-	// segment is interactive, like the top-level chat conversations). Stamp every
-	// mainagent row with it so this turn's transcript + activity land in that segment.
-	// Missing seg (older clients) falls back to the newest segment.
-	mainSeg := 0
-	if req.Seg != nil && *req.Seg >= 0 {
-		mainSeg = *req.Seg
-	} else {
+// emitTaskHumanTurn persists one human turn into the task's mainagent activity
+// stream (worker="mainagent", stamped with the main session segment).
+func (s *Server) emitTaskHumanTurn(t *Task, message string, atts []chatAttachment, seg int, q *queuedChat) *db.Activity {
+	mainSeg := seg
+	if mainSeg == 0 {
 		mainSeg, _ = t.Store.CurrentMainSeg()
 	}
 	segPtr := &mainSeg
-
-	// Persist + broadcast the human turn so the main-agent orchestration session survives page
-	// reloads and updates live: the conversation lives in the activity stream as
-	// worker="mainagent" (the per-task activity table, replayed via SSE). With
-	// attachments, the activity's Detail carries {text, attachments} so the transcript
-	// renders attachment cards.
-	humanTurn := userActivityWithAttachments("mainagent", req.Message, req.Attachments)
+	humanTurn := userActivityWithAttachments("mainagent", message, atts)
 	humanTurn.MainSeg = segPtr
-	s.engine.emitActivity(t, humanTurn)
+	rec := s.engine.emitActivity(t, humanTurn)
+	if q != nil {
+		q.seg = mainSeg
+		q.qid = rec.ID
+	}
+	return &rec
+}
+
+// launchTaskChatTurn runs the just-admitted turn: emit the human turn, then either
+// launch the main agent on a background goroutine (LLM mode) or answer with the
+// rule-mode fallback. q != nil means the human turn was already emitted (queued
+// path) and must not be duplicated.
+func (s *Server) launchTaskChatTurn(t *Task, ctx context.Context, cancel context.CancelCauseFunc, agentMessage, message string, atts []chatAttachment, seg int, q *queuedChat) (string, any) {
+	var segPtr *int
+	if q == nil {
+		rec := s.emitTaskHumanTurn(t, message, atts, seg, nil)
+		segPtr = rec.MainSeg
+	} else {
+		seg := q.seg
+		segPtr = &seg
+	}
 	var ma *agent.MainAgent
 	if s.taskRuntimeAvailable(t, "mainagent") {
 		ma = s.agentsForTask(t).main
@@ -3951,7 +4050,7 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 			// Splice the list of [absolute paths] of uploaded attachments into the message sent to the agent; it uses them to open files via Read/Bash.
 			// taskDir = the agent's working directory (CWD), consistent with chatUpload's target dir and ensureRunDir.
 			taskDir := filepath.Join(s.m.dir, "tasks", t.ID)
-			agentMsg := composeAgentMessage(agentMessage, req.Attachments, taskDir)
+			agentMsg := composeAgentMessage(agentMessage, atts, taskDir)
 			// Tag the turn for the target gate: the task, the "mainagent" lane and the approval scope.
 			gctx := intercept.WithTaskContext(ctx, t.ID, "mainagent", func(a db.Activity) {
 				a.Worker = "mainagent"
@@ -3959,19 +4058,18 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 			})
 			gctx = intercept.WithTargetScope(gctx, t.targetScope(intercept.DefaultTargetWaitBound))
 			s.engine.BeginLLMCall(t.ID)
-			_, err := ma.Chat(gctx, maTaskID, mainSeg, s.m.Assets(), t.Store, t.Goal, agentMsg, t.TargetGuard.Hooks(), emit, t.Notify, resume, t.NotifyGoal, t.NotifyHint)
+			_, err := ma.Chat(gctx, maTaskID, *segPtr, s.m.Assets(), t.Store, t.Goal, agentMsg, t.TargetGuard.Hooks(), emit, t.Notify, resume, t.NotifyGoal, t.NotifyHint)
 			s.engine.EndLLMCall(t.ID)
 			if err != nil && ctx.Err() == nil {
 				s.engine.emitActivity(t, db.Activity{Worker: "mainagent", Kind: "text", IsError: true, Summary: "(main agent error: " + err.Error() + ")", MainSeg: segPtr})
 			}
 		}()
-		writeJSON(w, 202, map[string]any{"status": "accepted", "mode": "llm"})
-		return
+		return "accepted", nil
 	}
-	reply := s.fallbackChat(t, req.Message)
+	reply := s.fallbackChat(t, message)
 	s.engine.emitActivity(t, db.Activity{Worker: "mainagent", Kind: "text", Summary: reply, MainSeg: segPtr})
 	s.finishTaskChat(t.ID, cancel)
-	writeJSON(w, 200, map[string]any{"reply": reply, "mode": "rule"})
+	return "rule", reply
 }
 
 func (s *Server) cancelTaskChat(taskID string, cause error) bool {
@@ -3989,7 +4087,55 @@ func (s *Server) finishTaskChat(taskID string, cancel context.CancelCauseFunc) {
 	s.chatMu.Lock()
 	delete(s.chatBusy, taskID)
 	delete(s.chatCancel, taskID)
+	next := s.popTaskChatLocked(taskID)
 	s.chatMu.Unlock()
+	if next == nil {
+		return
+	}
+	// Launch the next queued turn; it re-enters admission, so a turn that started
+	// in the meantime simply re-queues it at the front.
+	t := s.m.ResolveTask(taskID)
+	if t == nil {
+		return
+	}
+	if status, _ := s.admitQueuedTaskChat(t, next); status != "accepted" {
+		log.Printf("[chat %s] queued turn did not start (status=%s), dropping", taskID, status)
+	}
+}
+
+// popTaskChatLocked removes and returns the oldest queued message for a task.
+// Caller must hold chatMu.
+func (s *Server) popTaskChatLocked(taskID string) *queuedChat {
+	q := s.chatQueue[taskID]
+	if len(q) == 0 {
+		delete(s.chatQueue, taskID)
+		return nil
+	}
+	next := q[0]
+	if len(q) == 1 {
+		delete(s.chatQueue, taskID)
+	} else {
+		s.chatQueue[taskID] = q[1:]
+	}
+	return next
+}
+
+// admitQueuedTaskChat starts a previously queued turn without re-emitting its
+// human turn (persisted at enqueue time). If the task is busy again, the message
+// goes back to the front of the queue.
+func (s *Server) admitQueuedTaskChat(t *Task, q *queuedChat) (string, any) {
+	s.chatMu.Lock()
+	if s.engine.IsDeleting(t.ID) || s.chatBusy[t.ID] {
+		s.chatQueue[t.ID] = append([]*queuedChat{q}, s.chatQueue[t.ID]...)
+		s.chatMu.Unlock()
+		return "requeued", nil
+	}
+	ctx, cancel := context.WithCancelCause(s.ctx)
+	ctx = intercept.WithReviewContext(ctx, "", intercept.ReviewBackground{Source: intercept.BackgroundUserMessage, Text: q.message})
+	s.chatBusy[t.ID] = true
+	s.chatCancel[t.ID] = cancel
+	s.chatMu.Unlock()
+	return s.launchTaskChatTurn(t, ctx, cancel, q.agentMessage, q.message, q.attachments, q.seg, q)
 }
 
 // taskChatStatus reports the authoritative state of the task's main-agent turn.
@@ -4003,8 +4149,47 @@ func (s *Server) taskChatStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	s.chatMu.Lock()
 	running := s.chatBusy[t.ID]
+	var queued []map[string]any
+	for _, q := range s.chatQueue[t.ID] {
+		queued = append(queued, map[string]any{"id": q.qid, "message": q.message})
+	}
 	s.chatMu.Unlock()
-	writeJSON(w, http.StatusOK, map[string]bool{"running": running})
+	writeJSON(w, http.StatusOK, map[string]any{"running": running, "queue": queued})
+}
+
+// cancelQueuedTaskChat removes one queued message (by persisted activity Seq)
+// before it launches. The human turn row stays in the activity stream — it was
+// already broadcast — so this only stops the agent from answering it.
+func (s *Server) cancelQueuedTaskChat(w http.ResponseWriter, r *http.Request) {
+	t := s.m.ResolveTask(r.PathValue("id"))
+	if t == nil {
+		writeErr(w, 404, "task not found")
+		return
+	}
+	qid, err := strconv.ParseInt(r.PathValue("qid"), 10, 64)
+	if err != nil {
+		writeErr(w, 400, "invalid queued message id")
+		return
+	}
+	s.chatMu.Lock()
+	q := s.chatQueue[t.ID]
+	removed := false
+	for i, item := range q {
+		if item.qid == qid {
+			s.chatQueue[t.ID] = append(q[:i], q[i+1:]...)
+			removed = true
+			break
+		}
+	}
+	if len(s.chatQueue[t.ID]) == 0 {
+		delete(s.chatQueue, t.ID)
+	}
+	s.chatMu.Unlock()
+	if !removed {
+		writeErr(w, 404, "queued message not found")
+		return
+	}
+	writeJSON(w, 200, map[string]any{"ok": true})
 }
 
 // stopChat aborts the in-flight main-agent turn for a task (manual stop button).
@@ -4054,18 +4239,22 @@ func (s *Server) getReport(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 404, "no active task")
 		return
 	}
-	findings, _ := t.Store.ListByKind(db.KindFinding, 1000) // pure vulnerabilities (facts are a separate KindFact and never enter the report)
-	counts := map[string]int{}
-	for _, ty := range []string{"root_domain", "ip", "subdomain", "app", "service", "endpoint"} {
-		ns, _ := s.m.Assets().QueryByType(ty, 100000, 0)
-		if len(ns) > 0 {
-			counts[ty] = len(ns)
-		}
+	tid, err := strconv.ParseInt(t.ID, 10, 64)
+	if err != nil {
+		writeErr(w, 404, "Task not found")
+		return
 	}
-	md := report.Markdown(report.Input{
-		Title: t.Description, Goal: t.Goal, GeneratedAt: time.Now(),
-		AssetCounts: counts, Findings: findings,
-	})
+	var eid int64
+	if err = s.m.pg.QueryRowContext(r.Context(), `SELECT engagement_id FROM tasks WHERE id=$1`, tid).Scan(&eid); err != nil {
+		writeErr(w, 503, errDataSourceUnavailable)
+		return
+	}
+	snap, err := s.captureReportSnapshot(r.Context(), eid, []int64{tid})
+	if err != nil {
+		writeErr(w, 503, errDataSourceUnavailable)
+		return
+	}
+	md := fmt.Sprintf("# Engagement report — %s\n\nDRAFT | Stored-record report | Generated %s\n\n## Executive summary\n\n%d recorded findings. Verification and dispositions are preserved below.\n\n## Scope\n\n%s\n\n## Methodology\n\nReview of stored task records; no additional testing performed.\n\n## Engagement timeline\n\n%v recorded task activities.\n\n## Findings and remediation priorities\n\nReview each finding with its original severity and verification label.\n", t.Description, time.Now().UTC().Format(time.RFC3339), len(snap.Findings), t.Goal, len(snap.Timeline)) + deterministicAppendix(snap)
 	w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
 	w.WriteHeader(200)
 	_, _ = w.Write([]byte(md))

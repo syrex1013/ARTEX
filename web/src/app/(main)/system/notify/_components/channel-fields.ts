@@ -52,7 +52,12 @@ export const CHANNEL_FIELDS: Record<string, FieldDef[]> = {
       kind: "text",
       placeholder: "https://open.feishu.cn/open-apis/bot/v2/hook/...",
     },
-    { key: "secret", label: "Signature verification secret", kind: "password", help: "Fill in when the robot enables 'Signature verification'; otherwise leave empty" },
+    {
+      key: "secret",
+      label: "Signature verification secret",
+      kind: "password",
+      help: "Fill in when the robot enables 'Signature verification'; otherwise leave empty",
+    },
   ],
   wecom: [
     {
@@ -75,7 +80,12 @@ export const CHANNEL_FIELDS: Record<string, FieldDef[]> = {
         { value: "GET", label: "GET (no body)" },
       ],
     },
-    { key: "headers", label: "Custom headers", kind: "kv", help: "One KEY=VALUE per line, e.g. Authorization=Bearer xxx" },
+    {
+      key: "headers",
+      label: "Custom headers",
+      kind: "kv",
+      help: "One KEY=VALUE per line, e.g. Authorization=Bearer xxx",
+    },
     {
       key: "body_template",
       label: "Body template",
@@ -110,7 +120,12 @@ export const CHANNEL_FIELDS: Record<string, FieldDef[]> = {
     { key: "password", label: "Password / auth code", kind: "password" },
     { key: "from", label: "From", kind: "text", placeholder: "artex@example.com" },
     { key: "to", label: "Recipients", kind: "list", help: "Separate multiple addresses with commas" },
-    { key: "tls", label: "Implicit TLS", kind: "switch", help: "On for port 465; keep off for 587 (STARTTLS is automatic)" },
+    {
+      key: "tls",
+      label: "Implicit TLS",
+      kind: "switch",
+      help: "On for port 465; keep off for 587 (STARTTLS is automatic)",
+    },
   ],
 };
 

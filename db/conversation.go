@@ -102,7 +102,7 @@ func (d *DB) CreateConversationGated(agentKey, title string, llmProfileID *int64
 	// by this transaction before it takes a profile lock, matching DeleteProfile's
 	// child-row -> profile-row protocol.
 	c, err := scanConv(tx.QueryRow(`
-INSERT INTO conversations(agent_key, title, llm_profile_id, target_gate) VALUES ($1, $2, NULL, $3)
+INSERT INTO conversations(agent_key, title, llm_profile_id, target_gate,engagement_id,owner_id) VALUES ($1, $2, NULL, $3,legacy_engagement_id(),(SELECT id FROM local_users WHERE username='ARTEX' AND admin))
 RETURNING `+convCols, agentKey, title, targetGate))
 	if err != nil {
 		return nil, err

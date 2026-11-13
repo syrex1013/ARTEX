@@ -100,7 +100,12 @@ function ApprovalOrigin({ row, detail = false }: { row: InterceptApprovalRow; de
 }
 
 function StatusBadge({ status }: { status: string }) {
-  const labels: Record<string, string> = { pending: "Pending approval", allowed: "Allowed", denied: "Denied", timeout: "Timed out" };
+  const labels: Record<string, string> = {
+    pending: "Pending approval",
+    allowed: "Allowed",
+    denied: "Denied",
+    timeout: "Timed out",
+  };
   let variant: "default" | "destructive" | "secondary" | "outline" = "outline";
   if (status === "allowed") variant = "default";
   if (status === "denied") variant = "destructive";
@@ -168,7 +173,9 @@ function CodeBlock({ label, text, truncated = false }: { label: string; text: st
       <pre className="max-h-80 min-w-0 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-muted/60 p-3 font-mono text-xs leading-6 [overflow-wrap:anywhere]">
         {text || "Not recorded"}
       </pre>
-      {truncated ? <p className="text-muted-foreground text-xs">Content truncated; the above is the saved excerpt.</p> : null}
+      {truncated ? (
+        <p className="text-muted-foreground text-xs">Content truncated; the above is the saved excerpt.</p>
+      ) : null}
     </section>
   );
 }
@@ -197,8 +204,11 @@ function ModelReviewContext({ input }: { input: InterceptReviewInput }) {
       <div className="flex flex-col gap-2">
         <h3 className="font-medium text-sm">Model review context</h3>
         <p className="text-muted-foreground text-xs">
-          Below is the snapshot of the input actually sent to the review model for this decision. The background only helps it understand the current action; the verdict follows the review policy.
-          {input.version < 4 ? "This record used the legacy input format; the content actually sent at the time is preserved." : null}
+          Below is the snapshot of the input actually sent to the review model for this decision. The background only
+          helps it understand the current action; the verdict follows the review policy.
+          {input.version < 4
+            ? "This record used the legacy input format; the content actually sent at the time is preserved."
+            : null}
         </p>
       </div>
       <CodeBlock
@@ -209,7 +219,11 @@ function ModelReviewContext({ input }: { input: InterceptReviewInput }) {
         input.background ? (
           <div className="flex min-w-0 flex-col gap-2">
             <CodeBlock
-              label={input.background.source === "user_message" ? "Background · user message" : "Background · Worker intent summary (legacy)"}
+              label={
+                input.background.source === "user_message"
+                  ? "Background · user message"
+                  : "Background · Worker intent summary (legacy)"
+              }
               text={input.background.text}
               truncated={input.background.truncated}
             />
@@ -225,17 +239,32 @@ function ModelReviewContext({ input }: { input: InterceptReviewInput }) {
       ) : (
         <>
           {input.turn_input ? (
-            <CodeBlock label="Current turn input (legacy)" text={input.turn_input} truncated={input.background_truncated} />
+            <CodeBlock
+              label="Current turn input (legacy)"
+              text={input.turn_input}
+              truncated={input.background_truncated}
+            />
           ) : null}
           {input.task ? (
             <>
-              <CodeBlock label="Task description (legacy)" text={input.task.description} truncated={input.task.truncated} />
+              <CodeBlock
+                label="Task description (legacy)"
+                text={input.task.description}
+                truncated={input.task.truncated}
+              />
               <CodeBlock label="Task goals (legacy)" text={input.task.goal} truncated={input.task.truncated} />
-              <CodeBlock label="Task operation constraints (legacy)" text={JSON.stringify(input.task.constraints, null, 2)} />
+              <CodeBlock
+                label="Task operation constraints (legacy)"
+                text={JSON.stringify(input.task.constraints, null, 2)}
+              />
             </>
           ) : null}
           {input.worker_intent ? (
-            <CodeBlock label="Worker intent (legacy)" text={input.worker_intent} truncated={input.background_truncated} />
+            <CodeBlock
+              label="Worker intent (legacy)"
+              text={input.worker_intent}
+              truncated={input.background_truncated}
+            />
           ) : null}
         </>
       )}
@@ -244,7 +273,9 @@ function ModelReviewContext({ input }: { input: InterceptReviewInput }) {
         <p className="text-muted-foreground text-xs">No past calls or execution results were sent for this review.</p>
       ) : (
         <div className="flex min-w-0 flex-col gap-3">
-          <h4 className="font-medium text-muted-foreground text-xs">Past calls provided to the model at the time (legacy)</h4>
+          <h4 className="font-medium text-muted-foreground text-xs">
+            Past calls provided to the model at the time (legacy)
+          </h4>
           {input.history?.length ? (
             input.history.map((entry) => (
               <div key={entry.tool_use_id} className="flex min-w-0 flex-col gap-2 rounded-lg border p-3">
@@ -348,7 +379,8 @@ export function ApprovalDetail({
   const audit = detail?.audit;
   let execution = audit ? executionLabels[audit.execution_status] : "Not recorded";
   if (row.status === "pending") execution = "Not started";
-  if (audit && audit.correlation !== "exact" && audit.effective_action === "allow") execution = "No linked execution result";
+  if (audit && audit.correlation !== "exact" && audit.effective_action === "allow")
+    execution = "No linked execution result";
   const command = typeof row.tool_input?.command === "string" ? row.tool_input.command : undefined;
   let initialLabel = source(row) === "model" ? "Model initial decision" : "Rule initial decision";
   if (audit?.model_fallback) initialLabel = "Model error fallback";
@@ -390,7 +422,9 @@ export function ApprovalDetail({
             {current.reason?.replace(/^\[model\]\s*/, "") || "No approval reason recorded"}
           </p>
           {audit?.decision_reason ? <p className="text-sm">{audit.decision_reason}</p> : null}
-          {audit?.effective_action ? <p className="text-sm">Final action: {actionLabels[audit.effective_action]}</p> : null}
+          {audit?.effective_action ? (
+            <p className="text-sm">Final action: {actionLabels[audit.effective_action]}</p>
+          ) : null}
           <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-2 text-xs">
             <dt className="text-muted-foreground">Source</dt>
             <dd className="break-words">
@@ -435,7 +469,10 @@ export function ApprovalDetail({
       {!detail && !error ? <Skeleton className="h-8 w-60" /> : null}
       {detail && !audit ? (
         <Alert>
-          <AlertDescription>This record has no saved approval detail snapshot, so the context, model initial decision, and execution output at the time cannot be restored.</AlertDescription>
+          <AlertDescription>
+            This record has no saved approval detail snapshot, so the context, model initial decision, and execution
+            output at the time cannot be restored.
+          </AlertDescription>
         </Alert>
       ) : null}
       {audit ? (
@@ -481,10 +518,13 @@ export function ApprovalDetail({
                       <section className="flex min-w-0 flex-col gap-3">
                         <h3 className="font-medium text-muted-foreground text-xs">Visible conversation context</h3>
                         <p className="text-muted-foreground text-xs">
-                          Conversation record excerpt saved at {fmtTime(audit.captured_at)}. What the model actually used follows "Model review input".
+                          Conversation record excerpt saved at {fmtTime(audit.captured_at)}. What the model actually
+                          used follows "Model review input".
                         </p>
                         {audit.context_truncated ? (
-                          <p className="text-muted-foreground text-xs">Only the most recent context is saved; some content is truncated.</p>
+                          <p className="text-muted-foreground text-xs">
+                            Only the most recent context is saved; some content is truncated.
+                          </p>
                         ) : null}
                         {audit.context?.length ? (
                           audit.context.map((entry, index) => (
@@ -509,7 +549,10 @@ export function ApprovalDetail({
               />
               <CodeBlock
                 label="Execution output"
-                text={audit.output ?? (audit.execution_status === "not_executed" ? "Tool not executed." : "No execution output yet")}
+                text={
+                  audit.output ??
+                  (audit.execution_status === "not_executed" ? "Tool not executed." : "No execution output yet")
+                }
                 truncated={audit.output_truncated}
               />
               {audit.correlation !== "exact" ? (
@@ -706,7 +749,9 @@ export function ApprovalRecords({ taskId }: { taskId?: string }) {
         // filter. Older requests must remain actionable even when newer decisions
         // fill the page or a filter would hide them.
         const [history, pending] = await Promise.allSettled([
-          taskId ? api.interceptTaskPage(taskId, page, pageSize, filter) : api.interceptHistoryPage(page, pageSize, filter),
+          taskId
+            ? api.interceptTaskPage(taskId, page, pageSize, filter)
+            : api.interceptHistoryPage(page, pageSize, filter),
           api.interceptPending(),
         ]);
         if (id !== request.current) return;
@@ -816,7 +861,10 @@ export function ApprovalRecords({ taskId }: { taskId?: string }) {
           Refresh
         </Button>
       </div>
-      <p className="text-muted-foreground text-sm">Expand a record to view the tool request and approval decision, along with the context and execution result at the time.</p>
+      <p className="text-muted-foreground text-sm">
+        Expand a record to view the tool request and approval decision, along with the context and execution result at
+        the time.
+      </p>
       <FieldGroup className="flex-row flex-wrap items-end gap-3" aria-label="Approval record filters">
         <Field className="w-full sm:w-40">
           <FieldLabel htmlFor={`${filterID}-status`}>Approval status</FieldLabel>

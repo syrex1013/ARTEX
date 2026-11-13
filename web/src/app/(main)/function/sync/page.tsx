@@ -9,8 +9,10 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Empty, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { api } from "@/lib/api";
@@ -35,7 +37,7 @@ const ASSET_TYPES: { key: string; label: string }[] = [
 
 export default function AssetSyncPage() {
   return (
-    <div className="p-4 md:p-6">
+    <div>
       <div className="mb-4">
         <h1 className="font-semibold text-xl">Asset sync</h1>
         <p className="text-muted-foreground text-sm">Sync assets into the store from external data sources</p>
@@ -163,7 +165,9 @@ function DataSourceCard({
               </p>
             )}
             {status.configured && !status.enabled && (
-              <p className="text-amber-600 text-sm dark:text-amber-500">The data source is configured but not enabled; it will be enabled automatically on save.</p>
+              <p className="text-amber-600 text-sm dark:text-amber-500">
+                The data source is configured but not enabled; it will be enabled automatically on save.
+              </p>
             )}
             <div className="grid gap-3 md:grid-cols-2">
               <div className="space-y-1.5">
@@ -202,7 +206,7 @@ function StatusBadge({ status, loading }: { status: SSStatus | null; loading: bo
   if (!status.enabled) return <Badge variant="outline">Not enabled</Badge>;
   if (status.reachable)
     return (
-      <Badge className="bg-emerald-600 hover:bg-emerald-600">
+      <Badge className="bg-tone-success hover:bg-tone-success">
         <CheckCircle2Icon className="mr-1 size-3" /> Connected
       </Badge>
     );
@@ -291,8 +295,12 @@ function SyncWorkbench() {
     if (loading) {
       return (
         <TableRow>
-          <TableCell colSpan={4} className="py-8 text-center text-muted-foreground text-sm">
-            Loading…
+          <TableCell colSpan={4} className="py-8 text-center">
+            <div className="mx-auto flex max-w-sm flex-col gap-2">
+              <Skeleton className="h-4 w-full" />
+              <Skeleton className="h-4 w-4/5" />
+              <Skeleton className="h-4 w-3/5" />
+            </div>
           </TableCell>
         </TableRow>
       );
@@ -300,8 +308,15 @@ function SyncWorkbench() {
     if (rows.length === 0) {
       return (
         <TableRow>
-          <TableCell colSpan={4} className="py-8 text-center text-muted-foreground text-sm">
-            No data
+          <TableCell colSpan={4} className="py-8 text-center">
+            <Empty>
+              <EmptyHeader>
+                <EmptyMedia variant="icon">
+                  <DownloadIcon />
+                </EmptyMedia>
+                <EmptyTitle>No data</EmptyTitle>
+              </EmptyHeader>
+            </Empty>
           </TableCell>
         </TableRow>
       );

@@ -133,7 +133,10 @@ function Chips({ items, mono }: { items: string[]; mono?: boolean }) {
 
 function SourceCell({ asset }: { asset: Asset }) {
   const source = firstText([asset.task_source], "legacy");
-  const summary = firstText([asset.task_source_summary], "Migrated from a historical task's asset association; no more detailed source information");
+  const summary = firstText(
+    [asset.task_source_summary],
+    "Migrated from a historical task's asset association; no more detailed source information",
+  );
   return (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -234,7 +237,7 @@ function AssetCard({
             </SelectContent>
           </Select>
           <span className="tabular-nums">
-            {start}–{end} / {total}
+            {start}-{end} / {total}
           </span>
           {pageCount > 1 ? (
             <div className="ml-auto flex items-center gap-2">
@@ -309,7 +312,8 @@ function AddTaskAssetsSheet({
         <SheetHeader>
           <SheetTitle>Add test assets</SheetTitle>
           <SheetDescription>
-            Enter the test scope directly. Domains and IPs create or reuse global assets; CIDRs, ICP records, and keywords act as agent scope context.
+            Enter the test scope directly. Domains and IPs create or reuse global assets; CIDRs, ICP records, and
+            keywords act as agent scope context.
           </SheetDescription>
         </SheetHeader>
         <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-4">
@@ -521,7 +525,10 @@ export function AssetsTab({ taskId }: { taskId: string }) {
         </TabsContent>
 
         <TabsContent value="ip" className="mt-0 flex min-h-0 flex-1 flex-col">
-          <AssetCard cols={["IP", "C segment", "Bound domains", "Open ports", "Source", "Actions"]} {...commonCardProps}>
+          <AssetCard
+            cols={["IP", "C segment", "Bound domains", "Open ports", "Source", "Actions"]}
+            {...commonCardProps}
+          >
             {rows.map((asset) => (
               <TableRow key={asset.id}>
                 <TableCell className="font-medium font-mono text-xs">{asset.ip}</TableCell>
@@ -547,7 +554,10 @@ export function AssetsTab({ taskId }: { taskId: string }) {
         </TabsContent>
 
         <TabsContent value="subdomain" className="mt-0 flex min-h-0 flex-1 flex-col">
-          <AssetCard cols={["Domain", "Root domain", "Record type", "Record value", "Source", "Actions"]} {...commonCardProps}>
+          <AssetCard
+            cols={["Domain", "Root domain", "Record type", "Record value", "Source", "Actions"]}
+            {...commonCardProps}
+          >
             {rows.map((asset) => (
               <TableRow key={asset.id}>
                 <TableCell className="font-medium font-mono text-xs">{asset.domain}</TableCell>
@@ -566,7 +576,10 @@ export function AssetsTab({ taskId }: { taskId: string }) {
         </TabsContent>
 
         <TabsContent value="app" className="mt-0 flex min-h-0 flex-1 flex-col">
-          <AssetCard cols={["App", "Address", "Category", "Title", "Fingerprints", "Source", "Actions"]} {...commonCardProps}>
+          <AssetCard
+            cols={["App", "Address", "Category", "Title", "Fingerprints", "Source", "Actions"]}
+            {...commonCardProps}
+          >
             {rows.map((asset) => (
               <TableRow key={asset.id}>
                 <TableCell className="max-w-48 truncate font-medium text-xs">{asset.app_name || "—"}</TableCell>
@@ -589,7 +602,16 @@ export function AssetsTab({ taskId }: { taskId: string }) {
 
         <TabsContent value="service" className="mt-0 flex min-h-0 flex-1 flex-col">
           <AssetCard
-            cols={["Address / service", "Status code", "Title", "Response size", "Fingerprints", "Auth", "Source", "Actions"]}
+            cols={[
+              "Address / service",
+              "Status code",
+              "Title",
+              "Response size",
+              "Fingerprints",
+              "Auth",
+              "Source",
+              "Actions",
+            ]}
             {...commonCardProps}
           >
             {rows.map((asset) => {

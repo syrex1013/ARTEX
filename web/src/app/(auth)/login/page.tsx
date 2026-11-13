@@ -16,6 +16,7 @@ import { auth } from "@/lib/auth";
 
 export default function LoginPage() {
   const router = useRouter();
+  const [username, setUsername] = useState("ARTEX");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -47,7 +48,7 @@ export default function LoginPage() {
       // localStorage may still hold credentials while the cookie is gone. Sync first, then start a fresh request,
       // so a server-side guard or route cache cannot bounce the redirect back to the login page still in its checking state.
       auth.setToken(token);
-      window.location.replace("/function/tasks");
+      window.location.replace("/engagements");
       return;
     }
     api
@@ -68,9 +69,9 @@ export default function LoginPage() {
     setLoading(true);
     setError("");
     try {
-      const { token } = await api.login("ARTEX", password);
+      const { token } = await api.login(username, password);
       auth.setToken(token);
-      window.location.replace("/function/tasks");
+      window.location.replace("/engagements");
     } catch {
       setError("Incorrect username or password");
     } finally {
@@ -103,13 +104,21 @@ export default function LoginPage() {
       <div className="flex w-full items-center justify-center bg-background p-8 lg:w-2/3">
         <div className="w-full max-w-md space-y-10 py-24 lg:py-32">
           <div className="space-y-4 text-center">
-            <h2 className="text-2xl font-medium tracking-tight">Sign in</h2>
-            <p className="mx-auto max-w-xl text-muted-foreground">Welcome back — enter your password to continue using ARTEX</p>
+            <h2 className="font-medium text-2xl tracking-tight">Sign in</h2>
+            <p className="mx-auto max-w-xl text-muted-foreground">
+              Welcome back. Enter your password to continue using ARTEX
+            </p>
           </div>
           <form onSubmit={handleSubmit} className="flex flex-col gap-4">
             <div className="space-y-1.5">
               <Label htmlFor="username">Username</Label>
-              <Input id="username" value="ARTEX" readOnly className="bg-muted text-muted-foreground" />
+              <Input
+                id="username"
+                value={username}
+                onChange={(event) => setUsername(event.target.value)}
+                autoComplete="username"
+                required
+              />
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="password">Password</Label>
@@ -130,7 +139,7 @@ export default function LoginPage() {
                 onCheckedChange={(v) => setAgreed(v === true)}
                 className="mt-0.5"
               />
-              <Label htmlFor="agree-terms" className="text-sm font-normal leading-relaxed text-muted-foreground">
+              <Label htmlFor="agree-terms" className="font-normal text-muted-foreground text-sm leading-relaxed">
                 I have read and agree to
                 <button
                   type="button"
@@ -141,7 +150,7 @@ export default function LoginPage() {
                 </button>
               </Label>
             </div>
-            {error && <p className="text-sm text-destructive">{error}</p>}
+            {error && <p className="text-destructive text-sm">{error}</p>}
             <Button type="submit" className="w-full" disabled={loading || !password || !agreed}>
               {loading ? "Signing in..." : "Sign in"}
             </Button>
@@ -157,7 +166,7 @@ export default function LoginPage() {
             </div>
             <div className="space-y-0.5">
               <DialogTitle className="text-base">ARTEX Terms of Use and Disclaimer</DialogTitle>
-              <p className="text-xs text-muted-foreground">
+              <p className="text-muted-foreground text-xs">
                 Version v1.1 · Effective 2026-10-11 · Please read all the following terms in full before signing in
               </p>
             </div>
@@ -166,46 +175,57 @@ export default function LoginPage() {
           <div
             ref={termsBodyRef}
             onScroll={handleTermsScroll}
-            className="max-h-[60vh] space-y-5 overflow-y-auto px-6 py-5 text-sm leading-relaxed text-muted-foreground"
+            className="max-h-[60vh] space-y-5 overflow-y-auto px-6 py-5 text-muted-foreground text-sm leading-relaxed"
           >
             <p className="rounded-lg border bg-muted/40 p-3 text-foreground/80">
-              This Terms of Use and Disclaimer (the "Statement") is the agreement between you and the ARTEX
-              project authors and contributors regarding your use of this software. Please read it carefully and fully understand each provision before use, especially the disclaimer, liability-limitation, and prohibition clauses highlighted in bold or color blocks.
+              This Terms of Use and Disclaimer (the "Statement") is the agreement between you and the ARTEX project
+              authors and contributors regarding your use of this software. Please read it carefully and fully
+              understand each provision before use, especially the disclaimer, liability-limitation, and prohibition
+              clauses highlighted in bold or color blocks.
               <span className="font-medium text-foreground">
                 {" "}
-                Once you download, install, access, or use this software in any way, you are deemed to have read, understood, and agreed to be bound by all of this Statement.
+                Once you download, install, access, or use this software in any way, you are deemed to have read,
+                understood, and agreed to be bound by all of this Statement.
               </span>
             </p>
 
             <section className="space-y-1.5">
               <h4 className="flex items-center gap-2 font-medium text-foreground">
-                <span className="flex size-5 items-center justify-center rounded-md bg-muted text-xs font-semibold text-muted-foreground">
+                <span className="flex size-5 items-center justify-center rounded-md bg-muted font-semibold text-muted-foreground text-xs">
                   1
                 </span>
                 Article 1 · Definitions and Open-Source License
               </h4>
               <p className="pl-7">
                 This software (ARTEX) is an open-source program released under the GNU Affero General Public License
-                v3.0 (AGPL-3.0). You may freely use, copy, modify, and distribute it under that license; however, any derivative work (including online services provided to third parties over a network) must likewise be open-sourced under
-                the AGPL-3.0 license with the complete corresponding source code made public to its users. The full AGPL-3.0 terms are governed by the accompanying LICENSE file.
+                v3.0 (AGPL-3.0). You may freely use, copy, modify, and distribute it under that license; however, any
+                derivative work (including online services provided to third parties over a network) must likewise be
+                open-sourced under the AGPL-3.0 license with the complete corresponding source code made public to its
+                users. The full AGPL-3.0 terms are governed by the accompanying LICENSE file.
               </p>
             </section>
 
             <section className="space-y-1.5">
               <h4 className="flex items-center gap-2 font-medium text-foreground">
-                <span className="flex size-5 items-center justify-center rounded-md bg-muted text-xs font-semibold text-muted-foreground">
+                <span className="flex size-5 items-center justify-center rounded-md bg-muted font-semibold text-muted-foreground text-xs">
                   2
                 </span>
                 Article 2 · Permitted Scope of Use
               </h4>
               <p className="pl-7">
-                This software is a security-testing platform. You may use it for: personal study, code research, and technical verification in environments you set up yourself; security testing of systems you own; security testing of third-party systems when you hold the owner's explicit authorization; and testing within the written scope of a bug bounty or vulnerability disclosure program, in compliance with that program's rules of engagement. You are responsible for obtaining and keeping proof of authorization, for staying inside the authorized scope, and for the safety and proportionality of every action the software takes on your behalf.
+                This software is a security-testing platform. You may use it for: personal study, code research, and
+                technical verification in environments you set up yourself; security testing of systems you own;
+                security testing of third-party systems when you hold the owner's explicit authorization; and testing
+                within the written scope of a bug bounty or vulnerability disclosure program, in compliance with that
+                program's rules of engagement. You are responsible for obtaining and keeping proof of authorization, for
+                staying inside the authorized scope, and for the safety and proportionality of every action the software
+                takes on your behalf.
               </p>
             </section>
 
             <section className="space-y-2">
               <h4 className="flex items-center gap-2 font-medium text-destructive">
-                <span className="flex size-5 items-center justify-center rounded-md bg-destructive/10 text-xs font-semibold text-destructive">
+                <span className="flex size-5 items-center justify-center rounded-md bg-destructive/10 font-semibold text-destructive text-xs">
                   3
                 </span>
                 <AlertTriangle className="size-4" />
@@ -213,83 +233,113 @@ export default function LoginPage() {
               </h4>
               <ul className="ml-7 list-decimal space-y-1.5 rounded-lg border border-destructive/20 bg-destructive/5 p-3 pl-8 text-foreground/80 marker:text-destructive/70">
                 <li>
-                  Strictly forbidden: scanning, probing, exploiting, or attacking any system whose owner has not explicitly authorized you to test it, or exceeding the authorized scope or a program's rules of engagement once granted;
+                  Strictly forbidden: scanning, probing, exploiting, or attacking any system whose owner has not
+                  explicitly authorized you to test it, or exceeding the authorized scope or a program's rules of
+                  engagement once granted;
                 </li>
-                <li>Strictly forbidden: using this software for illegal intrusion, data theft, extortion, denial of service (DoS/DDoS), or any destructive or criminal activity;</li>
-                <li>Strictly forbidden: removing, tampering with, or circumventing any copyright, license, or security notice in this software or its output;</li>
-                <li>Strictly forbidden: engaging in any conduct that violates the laws, regulations, or regulatory rules of your country or region.</li>
+                <li>
+                  Strictly forbidden: using this software for illegal intrusion, data theft, extortion, denial of
+                  service (DoS/DDoS), or any destructive or criminal activity;
+                </li>
+                <li>
+                  Strictly forbidden: removing, tampering with, or circumventing any copyright, license, or security
+                  notice in this software or its output;
+                </li>
+                <li>
+                  Strictly forbidden: engaging in any conduct that violates the laws, regulations, or regulatory rules
+                  of your country or region.
+                </li>
               </ul>
             </section>
 
             <section className="space-y-1.5">
               <h4 className="flex items-center gap-2 font-medium text-foreground">
-                <span className="flex size-5 items-center justify-center rounded-md bg-muted text-xs font-semibold text-muted-foreground">
+                <span className="flex size-5 items-center justify-center rounded-md bg-muted font-semibold text-muted-foreground text-xs">
                   4
                 </span>
                 Article 4 · Intellectual Property
               </h4>
               <p className="pl-7">
-                The copyright and related intellectual property of this software belong to the project authors and contributors, who grant
-                you the corresponding rights within the scope of the AGPL-3.0 license. Beyond the rights expressly granted by that license, this Statement grants you no other rights, expressly or by implication.
+                The copyright and related intellectual property of this software belong to the project authors and
+                contributors, who grant you the corresponding rights within the scope of the AGPL-3.0 license. Beyond
+                the rights expressly granted by that license, this Statement grants you no other rights, expressly or by
+                implication.
               </p>
             </section>
 
             <section className="space-y-1.5">
               <h4 className="flex items-center gap-2 font-medium text-foreground">
-                <span className="flex size-5 items-center justify-center rounded-md bg-muted text-xs font-semibold text-muted-foreground">
+                <span className="flex size-5 items-center justify-center rounded-md bg-muted font-semibold text-muted-foreground text-xs">
                   5
                 </span>
                 Article 5 · Data and Privacy
               </h4>
               <p className="pl-7">
-                This software is a self-deployable open-source program; the authors run no centralized service and neither collect nor upload your usage data. All data you generate, process, or touch while using it stays under your control, and you are responsible for its legality and security; any consequence of improper data handling is yours to bear.
+                This software is a self-deployable open-source program; the authors run no centralized service and
+                neither collect nor upload your usage data. All data you generate, process, or touch while using it
+                stays under your control, and you are responsible for its legality and security; any consequence of
+                improper data handling is yours to bear.
               </p>
             </section>
 
             <section className="space-y-1.5">
               <h4 className="flex items-center gap-2 font-medium text-foreground">
-                <span className="flex size-5 items-center justify-center rounded-md bg-muted text-xs font-semibold text-muted-foreground">
+                <span className="flex size-5 items-center justify-center rounded-md bg-muted font-semibold text-muted-foreground text-xs">
                   6
                 </span>
                 Article 6 · Compliance and Legal Liability
               </h4>
               <p className="pl-7">
-                You must comply on your own with all laws and regulations of your country or region on cybersecurity, data security and personal-information protection, computer crime, and the like (for example, laws on unauthorized access to computer systems, on personal-data protection, and on the responsibilities of security researchers and penetration testers in your jurisdiction).
+                You must comply on your own with all laws and regulations of your country or region on cybersecurity,
+                data security and personal-information protection, computer crime, and the like (for example, laws on
+                unauthorized access to computer systems, on personal-data protection, and on the responsibilities of
+                security researchers and penetration testers in your jurisdiction).
                 <span className="font-medium text-foreground">
                   {" "}
-                  All legal liability and consequences arising from your violation of the above laws and regulations or of this Statement are borne by you alone and have nothing to do with this software's authors and contributors.
+                  All legal liability and consequences arising from your violation of the above laws and regulations or
+                  of this Statement are borne by you alone and have nothing to do with this software's authors and
+                  contributors.
                 </span>
               </p>
             </section>
 
             <section className="space-y-1.5">
               <h4 className="flex items-center gap-2 font-medium text-foreground">
-                <span className="flex size-5 items-center justify-center rounded-md bg-muted text-xs font-semibold text-muted-foreground">
+                <span className="flex size-5 items-center justify-center rounded-md bg-muted font-semibold text-muted-foreground text-xs">
                   7
                 </span>
                 Article 7 · Disclaimer and Limitation of Liability
               </h4>
               <p className="pl-7">
-                This software is provided on an "AS IS" and "AS
-                AVAILABLE" basis, without any express or implied warranty, including but not limited to warranties of merchantability, fitness for a particular purpose, accuracy, and non-infringement. To the maximum extent permitted by applicable law, this software's authors and contributors are not liable for any direct, indirect, incidental, special, or consequential loss arising from using or being unable to use this software (regardless of whether it is used properly), including but not limited to data loss, system damage, business interruption, loss of profit, or legal disputes.
+                This software is provided on an "AS IS" and "AS AVAILABLE" basis, without any express or implied
+                warranty, including but not limited to warranties of merchantability, fitness for a particular purpose,
+                accuracy, and non-infringement. To the maximum extent permitted by applicable law, this software's
+                authors and contributors are not liable for any direct, indirect, incidental, special, or consequential
+                loss arising from using or being unable to use this software (regardless of whether it is used
+                properly), including but not limited to data loss, system damage, business interruption, loss of profit,
+                or legal disputes.
               </p>
             </section>
 
             <section className="space-y-1.5">
               <h4 className="flex items-center gap-2 font-medium text-foreground">
-                <span className="flex size-5 items-center justify-center rounded-md bg-muted text-xs font-semibold text-muted-foreground">
+                <span className="flex size-5 items-center justify-center rounded-md bg-muted font-semibold text-muted-foreground text-xs">
                   8
                 </span>
                 Article 8 · Changes to the Terms and Final Interpretation
               </h4>
               <p className="pl-7">
-                The authors may update this Statement from time to time as laws, regulations, or project development require; the updated version ships with the project and takes effect on its publication date, and your continued use of this software means you accept the revised terms. To the extent permitted by law, the authors hold the final right of interpretation of this Statement. If any provision of this Statement is held invalid, the remaining provisions stay in effect.
+                The authors may update this Statement from time to time as laws, regulations, or project development
+                require; the updated version ships with the project and takes effect on its publication date, and your
+                continued use of this software means you accept the revised terms. To the extent permitted by law, the
+                authors hold the final right of interpretation of this Statement. If any provision of this Statement is
+                held invalid, the remaining provisions stay in effect.
               </p>
             </section>
           </div>
 
           <DialogFooter className="mx-0 mb-0 flex-col items-stretch gap-2 rounded-b-xl px-6 sm:flex-row sm:items-center sm:justify-between">
-            <p className="text-xs text-muted-foreground">
+            <p className="text-muted-foreground text-xs">
               {readToEnd ? "You have read all the terms" : "Scroll the terms to the bottom to confirm"}
             </p>
             <DialogClose asChild>

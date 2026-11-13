@@ -44,7 +44,7 @@ func TestInterceptDecidedByHTTP(t *testing.T) {
 	m := &Manager{pg: d, interceptor: intercept.New(d)}
 	s := &Server{m: m, jwtKey: []byte("approval-decided-by-test-key")}
 	h := s.Handler()
-	token, err := signJWT(s.jwtKey)
+	token, err := testSessionJWT(s)
 	if err != nil {
 		t.Fatal(err)
 	}

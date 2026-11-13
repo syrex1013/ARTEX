@@ -14,37 +14,40 @@ import {
   TargetIcon,
   ZapIcon,
 } from "lucide-react";
-import { Bar, BarChart, CartesianGrid, Tooltip as RechartsTooltip, XAxis, YAxis } from "recharts";
+import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts";
 
 import { StatusBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { type ChartConfig, ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
-import { Progress } from "@/components/ui/progress";
-import { api } from "@/lib/api";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { http } from "@/lib/api";
+import {
+  type DailyUsageRow,
+  dailyUsage,
+  formatTokens as fmtTokens,
+  sumUsage,
+  tokenBreakdown,
+} from "@/lib/dashboard-usage";
 import type {
   Activity,
-  Agent,
   ConvTokenSummary,
   Finding,
   InterceptPending,
   LLMProfile,
-  MCPServer,
   Settings,
-  SkillItem,
   Stats,
   Task,
-  TokenTotal,
-  Tool,
   TrafficExchange,
   UsageStats,
 } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { visiblePoll } from "@/lib/visible-poller";
 
 // ── chart constants ───────────────────────────────────────────────────────────
 
 const dailyTrendConfig = {
-  input: { label: "Input", color: "hsl(217 91% 60%)" },
+  input: { label: "Uncached input", color: "hsl(217 91% 60%)" },
   output: { label: "Output", color: "hsl(263 70% 60%)" },
   cacheRead: { label: "Cache read", color: "hsl(160 60% 45%)" },
 } satisfies ChartConfig;
@@ -53,20 +56,15 @@ const dailyTrendConfig = {
 
 function fmtRel(ts?: string | number): string {
   if (!ts) return "—";
-  const ms = Date.now() - (typeof ts === "number" ? ts * 1000 : Date.parse(ts as string));
-  const s = Math.floor(ms / 1000);
+  const ms = Date.now() - (typeof ts === "number" ? ts * 1000 : Date.parse(ts));
+  if (!Number.isFinite(ms)) return "—";
+  const s = Math.max(0, Math.floor(ms / 1000));
   if (s < 60) return `${s}s ago`;
   const m = Math.floor(s / 60);
   if (m < 60) return `${m}m ago`;
   const h = Math.floor(m / 60);
   if (h < 24) return `${h}h ago`;
   return `${Math.floor(h / 24)}d ago`;
-}
-
-function fmtTokens(n: number): string {
-  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + "M";
-  if (n >= 1000) return (n / 1000).toFixed(1) + "k";
-  return String(n);
 }
 
 const ASSET_TYPE_LABELS: Record<string, string> = {
@@ -88,23 +86,27 @@ const ASSET_COLORS: Record<string, string> = {
 };
 
 function statusColor(code: number): string {
-  if (code < 300) return "text-emerald-500";
-  if (code < 400) return "text-blue-400";
-  if (code < 500) return "text-amber-400";
-  return "text-red-400";
+  if (code < 300) return "text-tone-success";
+  if (code < 400) return "text-tone-info";
+  if (code < 500) return "text-tone-warn";
+  return "text-tone-danger";
 }
 
 function statusBg(code: number): string {
-  if (code < 300) return "bg-emerald-500";
-  if (code < 400) return "bg-blue-400";
-  if (code < 500) return "bg-amber-400";
-  return "bg-red-400";
+  if (code < 300) return "bg-tone-success";
+  if (code < 400) return "bg-tone-info";
+  if (code < 500) return "bg-tone-warn";
+  return "bg-tone-danger";
 }
 
 // ── sub-components ────────────────────────────────────────────────────────────
 
 function LiveDot({ className }: { className?: string }) {
-  return <span className={cn("inline-block size-1.5 shrink-0 animate-pulse rounded-full bg-blue-400", className)} />;
+  return (
+    <span
+      className={cn("inline-block size-1.5 shrink-0 rounded-full bg-tone-info motion-safe:animate-pulse", className)}
+    />
+  );
 }
 
 function SectionTitle({
@@ -117,12 +119,12 @@ function SectionTitle({
   sub?: React.ReactNode;
 }) {
   return (
-    <div className="mb-3 flex items-center justify-between">
-      <div className="flex items-center gap-1.5 text-xs font-semibold">
+    <div className="mb-1 flex flex-wrap items-center justify-between gap-3">
+      <div className="flex items-center gap-2 font-semibold text-base">
         <Icon className="size-3.5 text-muted-foreground" />
         {children}
       </div>
-      {sub && <span className="text-[10px] text-muted-foreground">{sub}</span>}
+      {sub && <span className="text-muted-foreground text-xs">{sub}</span>}
     </div>
   );
 }
@@ -137,138 +139,131 @@ export default function DashboardPage() {
   const [settings, setSettings] = React.useState<Settings | null>(null);
   const [pending, setPending] = React.useState<InterceptPending[]>([]);
   const [activity, setActivity] = React.useState<Activity[]>([]);
-  const [tokens, setTokens] = React.useState<TokenTotal | null>(null);
   const [convTokens, setConvTokens] = React.useState<ConvTokenSummary[]>([]);
   const [usageStats, setUsageStats] = React.useState<UsageStats | null>(null);
   const [assetCounts, setAssetCounts] = React.useState<Record<string, number>>({});
+  const [trafficTotal, setTrafficTotal] = React.useState<number | null>(null);
   const [traffic, setTraffic] = React.useState<TrafficExchange[]>([]);
-  const [agents, setAgents] = React.useState<Agent[]>([]);
-  const [mcpServers, setMcpServers] = React.useState<MCPServer[]>([]);
-  const [skills, setSkills] = React.useState<SkillItem[]>([]);
-  const [tools, setTools] = React.useState<Tool[]>([]);
   const [llmProfiles, setLLMProfiles] = React.useState<LLMProfile[]>([]);
 
-  // The task list is the most expensive dashboard source. Poll it independently
-  // so a large history cannot hold back every other dashboard panel.
-  React.useEffect(() => {
-    let alive = true;
-    let loading = false;
-    let signature = "";
-    const load = async () => {
-      if (loading) return;
-      loading = true;
-      try {
-        const tr = await api.tasks();
-        if (!alive) return;
-        const nextSignature = JSON.stringify(tr.tasks);
-        if (nextSignature !== signature) {
-          signature = nextSignature;
-          setTasks(tr.tasks);
-        }
-      } catch {
-        /* transient errors — next poll retries */
-      } finally {
-        loading = false;
-      }
-    };
-    void load();
-    const t = setInterval(load, 5000);
-    return () => {
-      alive = false;
-      clearInterval(t);
-    };
-  }, []);
+  const [panelErrors, setPanelErrors] = React.useState<Record<string, string>>({});
+  const [tasksLoaded, setTasksLoaded] = React.useState(false);
+  const [taskTotal, setTaskTotal] = React.useState(0);
+  const [findingTotal, setFindingTotal] = React.useState(0);
+  const [tasksByStatus, setTasksByStatus] = React.useState<Record<string, number>>({});
+  const [findingsBySev, setFindingsBySev] = React.useState({ critical: 0, high: 0, medium: 0, low: 0 });
+  const [taskProfiles, setTaskProfiles] = React.useState<
+    {
+      llm_profile_id: number | null;
+      input_tokens: number;
+      output_tokens: number;
+      cache_read_tokens: number;
+      cache_write_tokens: number;
+      task_count: number;
+    }[]
+  >([]);
 
-  // The remaining fast sources stay batched so one poll causes a single render.
-  React.useEffect(() => {
-    let alive = true;
-    let loading = false;
-    const load = async () => {
-      if (loading) return;
-      loading = true;
-      try {
-        const [findings, stats, settings, pending, activity, tokens, conversationTokens] = await Promise.all([
-          api.findings(),
-          api.stats(),
-          api.settings(),
-          api.interceptPending(),
-          api.activity(undefined, { limit: 30 }),
-          api.tokenStats(),
-          api.conversationTokens(),
-        ]);
-        if (!alive) return;
-        setFindings(findings);
-        setStats(stats);
-        setSettings(settings);
-        setPending(pending);
-        setActivity(activity.items);
-        setTokens(tokens.total ?? null);
-        setConvTokens(conversationTokens);
-      } catch {
-        // Preserve stale data and retry on the next interval.
-      } finally {
-        loading = false;
-      }
-    };
-    void load();
-    const timer = setInterval(load, 5000);
-    return () => {
-      alive = false;
-      clearInterval(timer);
-    };
-  }, []);
+  const [legacyDaily, setLegacyDaily] = React.useState<
+    {
+      llm_profile_id: number | null;
+      date: string;
+      input_tokens: number;
+      output_tokens: number;
+      cache_read_tokens: number;
+    }[]
+  >([]);
 
-  // slow poll: traffic, assets, system-static (every 15s)
   React.useEffect(() => {
-    let alive = true;
-    const load = async () => {
+    const panel = async <T,>(key: string, request: Promise<T>, apply: (value: T) => void, signal: AbortSignal) => {
       try {
-        const [traf, counts, agentList, mcpList, skillList, toolList, profileList, usage] = await Promise.all([
-          api.traffic(0, 50),
-          api.assetCounts(),
-          api.agents(),
-          api.mcpServers(),
-          api.skills(),
-          api.tools(),
-          api.llmProfiles(),
-          api.usageStats(365),
-        ]);
-        if (!alive) return;
-        setTraffic(traf.exchanges ?? []);
-        setAssetCounts(counts ?? {});
-        setAgents(agentList);
-        setMcpServers(mcpList);
-        setSkills(skillList);
-        setTools(toolList);
-        setLLMProfiles(profileList);
-        setUsageStats(usage);
-      } catch {
-        /* transient errors */
+        const value = await request;
+        if (signal.aborted) return;
+        apply(value);
+        setPanelErrors((old) => {
+          const next = { ...old };
+          delete next[key];
+          return next;
+        });
+      } catch (error) {
+        if (!signal.aborted) setPanelErrors((old) => ({ ...old, [key]: (error as Error).message }));
       }
     };
-    void load();
-    const t = setInterval(load, 15000);
+    const stopFast = visiblePoll(async (signal) => {
+      await Promise.allSettled([
+        panel(
+          "findings",
+          http<{ total: number; severity: typeof findingsBySev; recent: Finding[] }>("/dashboard/findings", { signal }),
+          (value) => {
+            setFindings(value.recent);
+            setFindingTotal(value.total);
+            setFindingsBySev(value.severity);
+          },
+          signal,
+        ),
+        panel("stats", http<Stats>("/stats", { signal }), setStats, signal),
+        panel("approvals", http<InterceptPending[]>("/intercept/pending", { signal }), setPending, signal),
+        panel(
+          "activity",
+          http<{ items: Activity[] }>("/exploration/activity?limit=30", { signal }),
+          (value) => setActivity(value.items),
+          signal,
+        ),
+      ]);
+    }, 10000);
+    const stopSlow = visiblePoll(async (signal) => {
+      await Promise.allSettled([
+        panel(
+          "tasks",
+          http<{
+            tasks: Task[];
+            total: number;
+            counts: Record<string, number>;
+            token_profiles: typeof taskProfiles;
+            token_daily: typeof legacyDaily;
+          }>("/dashboard/tasks", { signal }),
+          (value) => {
+            setTasks(value.tasks);
+            setTaskTotal(value.total);
+            setTasksByStatus(value.counts);
+            setTaskProfiles(value.token_profiles);
+            setLegacyDaily(value.token_daily ?? []);
+            setTasksLoaded(true);
+          },
+          signal,
+        ),
+        panel("settings", http<Settings>("/settings", { signal }), setSettings, signal),
+        panel(
+          "conversation tokens",
+          http<ConvTokenSummary[]>("/tokens/conversations", { signal }),
+          setConvTokens,
+          signal,
+        ),
+        panel(
+          "traffic",
+          http<{ exchanges?: TrafficExchange[]; total: number }>("/traffic?page=0&size=50", { signal }),
+          (value) => {
+            setTraffic(value.exchanges ?? []);
+            setTrafficTotal(value.total ?? 0);
+          },
+          signal,
+        ),
+        panel("assets", http<Record<string, number>>("/assets/counts", { signal }), setAssetCounts, signal),
+        panel(
+          "models",
+          http<{ profiles: LLMProfile[] }>("/llm/profiles", { signal }),
+          (value) => setLLMProfiles(value.profiles),
+          signal,
+        ),
+        panel("usage", http<UsageStats>("/tokens/usage?days=365", { signal }), setUsageStats, signal),
+      ]);
+    }, 30000);
     return () => {
-      alive = false;
-      clearInterval(t);
+      stopFast();
+      stopSlow();
     };
   }, []);
 
   // ── derived ───────────────────────────────────────────────────────────────
-
-  const tasksByStatus = React.useMemo(() => {
-    const m: Record<string, number> = {};
-    for (const t of tasks) m[t.status] = (m[t.status] ?? 0) + 1;
-    return m;
-  }, [tasks]);
-
-  const findingsBySev = React.useMemo(() => {
-    const m = { critical: 0, high: 0, medium: 0, low: 0 };
-    for (const f of findings) {
-      if (f.severity in m) m[f.severity as keyof typeof m]++;
-    }
-    return m;
-  }, [findings]);
 
   const sortedTasks = React.useMemo(
     () =>
@@ -321,154 +316,52 @@ export default function DashboardPage() {
 
   // system
   const activeProfile = llmProfiles.find((p) => p.is_default);
-  const enabledTools = tools.filter((t) => t.enabled);
   const pendingCount = pending.length;
 
-  // ── token stats per LLM profile ──────────────────────────────────────────
-  // tasks whose llm_profile_id is null/undefined used the active default profile
-  const defaultProfileId = activeProfile ? Number(activeProfile.id) : null;
-
-  // Data source toggle: old = activity (task.tokens + conversations), new = the llm_usage metering ledger.
-  const [tokenVersion, setTokenVersion] = React.useState<"old" | "new">("old");
-  // selected profile tab: "all" = all; number = specific profile id
-  const [tokenTab, setTokenTab] = React.useState<number | null | "all">("all");
-  // day range for the daily bar chart
+  const [tokenVersion, setTokenVersion] = React.useState<"old" | "new">("new");
+  const [tokenTab, setTokenTab] = React.useState("all");
   const [tokenDays, setTokenDays] = React.useState<7 | 30 | 90 | 180 | 365>(30);
-
-  // profile name → id, mapping llm_usage profile_name to the existing profile tabs.
-  const profileIdByName = React.useMemo(() => {
-    const m = new Map<string, number>();
-    for (const p of llmProfiles) m.set(p.name, Number(p.id));
-    return m;
-  }, [llmProfiles]);
-
-  type Bucket = { input: number; output: number; cacheRead: number; cacheWrite: number; taskCount: number };
-
-  // Old: bucketed by profile (task.tokens from activity + conversation usage).
-  const tokenByProfileOld = React.useMemo<Map<number | null, Bucket>>(() => {
-    const m = new Map<number | null, Bucket>();
-    const fold = (key: number | null, inp: number, out: number, cr: number, cw: number, addTask: boolean) => {
-      const prev = m.get(key) ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, taskCount: 0 };
-      m.set(key, {
-        input: prev.input + inp,
-        output: prev.output + out,
-        cacheRead: prev.cacheRead + cr,
-        cacheWrite: prev.cacheWrite + cw,
-        taskCount: prev.taskCount + (addTask ? 1 : 0),
-      });
-    };
-    for (const t of tasks) {
-      fold(
-        t.llm_profile_id ?? defaultProfileId,
-        t.tokens?.input_tokens ?? 0,
-        t.tokens?.output_tokens ?? 0,
-        t.tokens?.cache_read_tokens ?? 0,
-        t.tokens?.cache_write_tokens ?? 0,
-        true,
-      );
-    }
-    for (const c of convTokens) {
-      fold(
-        c.llm_profile_id ?? defaultProfileId,
-        c.input_tokens,
-        c.output_tokens,
-        c.cache_read_tokens,
-        c.cache_write_tokens,
-        false,
-      );
-    }
-    return m;
-  }, [tasks, convTokens, defaultProfileId]);
-
-  // New: bucketed by profile (from the llm_usage global aggregate, exact per call).
-  const tokenByProfileNew = React.useMemo<Map<number | null, Bucket>>(() => {
-    const m = new Map<number | null, Bucket>();
-    for (const p of usageStats?.by_profile ?? []) {
-      // No matching profile (renamed/deleted/empty name) → falls into the default bucket, still counted in "All".
-      const key = profileIdByName.get(p.profile_name) ?? defaultProfileId;
-      const prev = m.get(key) ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, taskCount: 0 };
-      m.set(key, {
-        input: prev.input + p.input_tokens,
-        output: prev.output + p.output_tokens,
-        cacheRead: prev.cacheRead + p.cache_read_tokens,
-        cacheWrite: prev.cacheWrite + p.cache_write_tokens,
-        taskCount: prev.taskCount + p.tasks,
-      });
-    }
-    return m;
-  }, [usageStats, profileIdByName, defaultProfileId]);
-
-  const tokenByProfile = tokenVersion === "new" ? tokenByProfileNew : tokenByProfileOld;
-
-  const displayedTokens = React.useMemo(() => {
-    if (tokenTab === "all") {
-      let input = 0,
-        output = 0,
-        cacheRead = 0,
-        cacheWrite = 0,
-        taskCount = 0;
-      for (const v of tokenByProfile.values()) {
-        input += v.input;
-        output += v.output;
-        cacheRead += v.cacheRead;
-        cacheWrite += v.cacheWrite;
-        taskCount += v.taskCount;
-      }
-      return { input, output, cacheRead, cacheWrite, taskCount };
-    }
-    const v = tokenByProfile.get(tokenTab as number | null);
-    return v
-      ? { input: v.input, output: v.output, cacheRead: v.cacheRead, cacheWrite: v.cacheWrite, taskCount: v.taskCount }
-      : { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, taskCount: 0 };
-  }, [tokenTab, tokenByProfile]);
-
-  // Old daily: buckets each task/conversation's total by its creation date (approximate, not real daily spend).
-  const dailyTokenDataOld = React.useMemo(() => {
-    const now = new Date();
-    now.setDate(now.getDate() - tokenDays);
-    const cutoff = now.toISOString().slice(0, 10);
-    const m = new Map<string, { input: number; output: number; cacheRead: number }>();
-    const fold = (date: string, inp: number, out: number, cr: number) => {
-      if (date < cutoff) return;
-      const prev = m.get(date) ?? { input: 0, output: 0, cacheRead: 0 };
-      m.set(date, { input: prev.input + inp, output: prev.output + out, cacheRead: prev.cacheRead + cr });
-    };
-    for (const t of tasks) {
-      if (tokenTab !== "all" && (t.llm_profile_id ?? defaultProfileId) !== tokenTab) continue;
-      fold(
-        t.created_at.slice(0, 10),
-        t.tokens?.input_tokens ?? 0,
-        t.tokens?.output_tokens ?? 0,
-        t.tokens?.cache_read_tokens ?? 0,
-      );
-    }
-    for (const c of convTokens) {
-      if (tokenTab !== "all" && (c.llm_profile_id ?? defaultProfileId) !== tokenTab) continue;
-      fold(c.created_at.slice(0, 10), c.input_tokens, c.output_tokens, c.cache_read_tokens);
-    }
-    return [...m.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([date, v]) => ({ date: date.slice(5), ...v }));
-  }, [tasks, convTokens, tokenDays, tokenTab, defaultProfileId]);
-
-  // New daily: real daily spend from llm_usage (ts is the actual call time).
-  const dailyTokenDataNew = React.useMemo(() => {
-    const now = new Date();
-    now.setDate(now.getDate() - tokenDays);
-    const cutoff = now.toISOString().slice(0, 10);
-    const m = new Map<string, { input: number; output: number; cacheRead: number }>();
-    for (const d of usageStats?.daily ?? []) {
-      if (d.date < cutoff) continue;
-      if (tokenTab !== "all" && (profileIdByName.get(d.profile_name) ?? defaultProfileId) !== tokenTab) continue;
-      const prev = m.get(d.date) ?? { input: 0, output: 0, cacheRead: 0 };
-      m.set(d.date, {
-        input: prev.input + d.input_tokens,
-        output: prev.output + d.output_tokens,
-        cacheRead: prev.cacheRead + d.cache_read_tokens,
-      });
-    }
-    return [...m.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([date, v]) => ({ date: date.slice(5), ...v }));
-  }, [usageStats, tokenDays, tokenTab, profileIdByName, defaultProfileId]);
-
-  const dailyTokenData = tokenVersion === "new" ? dailyTokenDataNew : dailyTokenDataOld;
+  const profileName = (id: number | null) =>
+    llmProfiles.find((profile) => Number(profile.id) === id)?.name ?? (id == null ? "" : `Profile #${id}`);
+  const toUsage = (row: {
+    input_tokens: number | null;
+    output_tokens: number | null;
+    cache_read_tokens: number | null;
+  }) => ({
+    input: row.input_tokens ?? 0,
+    output: row.output_tokens ?? 0,
+    cacheRead: row.cache_read_tokens ?? 0,
+  });
+  // Preserve unknown and deleted profile names rather than attributing them to today's default.
+  const usageRows =
+    tokenVersion === "new"
+      ? (usageStats?.by_profile ?? []).map((row) => ({
+          profile: `name:${row.profile_name}`,
+          ...toUsage(row),
+        }))
+      : [...taskProfiles, ...convTokens].map((row) => ({
+          profile: `name:${profileName(row.llm_profile_id)}`,
+          ...toUsage(row),
+        }));
+  const dailyRows: DailyUsageRow[] =
+    tokenVersion === "new"
+      ? (usageStats?.daily ?? []).map((row) => ({
+          date: row.date,
+          profile: `name:${row.profile_name}`,
+          ...toUsage(row),
+        }))
+      : legacyDaily.map((row) => ({
+          date: row.date,
+          profile: `name:${profileName(row.llm_profile_id)}`,
+          ...toUsage(row),
+        }));
+  const profileOptions = [...new Set([...usageRows, ...dailyRows].map((row) => row.profile))].sort();
+  const displayedTokens = sumUsage(usageRows, tokenTab);
+  const totalTokens = sumUsage(usageRows);
+  const dailyTokenData = dailyUsage(dailyRows, tokenDays, tokenTab);
+  const periodTotal = dailyTokenData.reduce((total, day) => total + day.input + day.output + day.cacheRead, 0);
+  const breakdown = tokenBreakdown(displayedTokens.input, displayedTokens.output, displayedTokens.cacheRead);
+  const tokensLoading = tokenVersion === "new" ? usageStats === null : !tasksLoaded;
 
   // activity kind label
   function kindLabel(a: Activity): string {
@@ -477,87 +370,90 @@ export default function DashboardPage() {
     return a.kind;
   }
 
-  function workerColor(w: string): string {
-    if (w === "planner") return "text-violet-400";
-    if (w === "mainagent") return "text-cyan-400";
-    return "text-blue-400";
-  }
-
   function workerBg(w: string): string {
-    if (w === "planner") return "bg-violet-500/10 text-violet-400 border-violet-500/20";
-    if (w === "mainagent") return "bg-cyan-500/10 text-cyan-400 border-cyan-500/20";
-    return "bg-blue-500/10 text-blue-400 border-blue-500/20";
+    if (w === "planner") return "bg-tone-accent/10 text-tone-accent border-tone-accent/20";
+    if (w === "mainagent") return "bg-cyan-500/10 text-cyan-700 dark:text-cyan-400 border-cyan-500/20";
+    return "bg-tone-info/10 text-tone-info border-tone-info/20";
   }
 
   // ── render ────────────────────────────────────────────────────────────────
 
   return (
-    <div className="flex flex-1 flex-col gap-4 pb-6">
+    <div className="mx-auto flex w-full max-w-[1600px] flex-1 flex-col gap-6 pb-8">
       {/* ── Header ── */}
       <div>
         <div>
-          <h1 className="text-lg font-semibold tracking-tight">Overview</h1>
-          <p className="text-xs text-muted-foreground">System-wide status · live refresh</p>
+          <h1 className="font-semibold text-2xl tracking-tight">Overview</h1>
+          <p className="mt-1 text-muted-foreground text-sm">
+            System-wide activity, findings and usage. Refreshes automatically.
+          </p>
         </div>
       </div>
 
+      {Object.entries(panelErrors).map(([panel, error]) => (
+        <p key={panel} role="alert" className="text-destructive text-sm">
+          {panel}: {error}. Last successful data retained; panel may be stale.
+        </p>
+      ))}
       {/* ── Row 1: 5 stat cards ── */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
         {/* Active tasks */}
-        <Card className="gap-1">
+        <Card className="min-w-0 gap-3 py-5 [--card-spacing:--spacing(5)]">
           <CardHeader className="pb-0">
-            <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+            <div className="flex items-center gap-1.5 text-muted-foreground text-xs">
               <TargetIcon className="size-3" /> Active tasks
             </div>
             <div className="flex items-baseline gap-1.5">
-              <span className="text-2xl font-semibold tabular-nums">{tasksByStatus.running ?? 0}</span>
-              <span className="text-xs text-muted-foreground">/ {tasks.length}</span>
+              <span className="font-semibold text-3xl tabular-nums tracking-tight">{tasksByStatus.running ?? 0}</span>
+              <span className="text-muted-foreground text-xs">/ {taskTotal}</span>
             </div>
           </CardHeader>
-          <CardContent className="flex flex-wrap gap-x-2.5 gap-y-0.5 text-[10px]">
-            {(tasksByStatus.running ?? 0) > 0 && <span className="text-blue-400">Exploring {tasksByStatus.running}</span>}
-            {(tasksByStatus.paused ?? 0) > 0 && <span className="text-amber-400">Paused {tasksByStatus.paused}</span>}
-            {(tasksByStatus.done ?? 0) > 0 && <span className="text-emerald-400">Completed {tasksByStatus.done}</span>}
-            {tasks.length === 0 && <span className="text-muted-foreground">No tasks</span>}
+          <CardContent className="flex flex-wrap gap-x-2.5 gap-y-0.5 text-xs">
+            {(tasksByStatus.running ?? 0) > 0 && (
+              <span className="text-tone-info">Exploring {tasksByStatus.running}</span>
+            )}
+            {(tasksByStatus.paused ?? 0) > 0 && <span className="text-tone-warn">Paused {tasksByStatus.paused}</span>}
+            {(tasksByStatus.done ?? 0) > 0 && <span className="text-tone-success">Completed {tasksByStatus.done}</span>}
+            {taskTotal === 0 && <span className="text-muted-foreground">No tasks</span>}
           </CardContent>
         </Card>
 
-        {/* Confirmed findings */}
-        <Card className="gap-1">
+        {/* Recorded findings */}
+        <Card className="min-w-0 gap-3 py-5 [--card-spacing:--spacing(5)]">
           <CardHeader className="pb-0">
-            <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
-              <BugIcon className="size-3" /> Confirmed findings
+            <div className="flex items-center gap-1.5 text-muted-foreground text-xs">
+              <BugIcon className="size-3" /> Recorded findings
             </div>
-            <div className="text-2xl font-semibold tabular-nums">{findings.length}</div>
+            <div className="font-semibold text-3xl tabular-nums tracking-tight">{findingTotal}</div>
           </CardHeader>
-          <CardContent className="flex flex-wrap gap-2.5 text-[10px]">
-            <span className="text-rose-500">Critical {findingsBySev.critical}</span>
-            <span className="text-red-400">High {findingsBySev.high}</span>
-            <span className="text-amber-400">Medium {findingsBySev.medium}</span>
-            <span className="text-slate-400">Low {findingsBySev.low}</span>
+          <CardContent className="flex flex-wrap gap-2.5 text-xs">
+            <span className="text-rose-700 dark:text-rose-400">Critical {findingsBySev.critical}</span>
+            <span className="text-red-700 dark:text-red-400">High {findingsBySev.high}</span>
+            <span className="text-amber-700 dark:text-amber-400">Medium {findingsBySev.medium}</span>
+            <span className="text-slate-600 dark:text-slate-400">Low {findingsBySev.low}</span>
           </CardContent>
         </Card>
 
         {/* Asset nodes */}
-        <Card className="gap-1">
+        <Card className="min-w-0 gap-3 py-5 [--card-spacing:--spacing(5)]">
           <CardHeader className="pb-0">
-            <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+            <div className="flex items-center gap-1.5 text-muted-foreground text-xs">
               <NetworkIcon className="size-3" /> Asset nodes
             </div>
-            <div className="text-2xl font-semibold tabular-nums">{totalAssets}</div>
+            <div className="font-semibold text-3xl tabular-nums tracking-tight">{totalAssets}</div>
           </CardHeader>
-          <CardContent className="text-[10px] text-muted-foreground">Shared across tasks</CardContent>
+          <CardContent className="text-muted-foreground text-xs">Shared across tasks</CardContent>
         </Card>
 
         {/* Traffic exchanges */}
-        <Card className="gap-1">
+        <Card className="min-w-0 gap-3 py-5 [--card-spacing:--spacing(5)]">
           <CardHeader className="pb-0">
-            <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+            <div className="flex items-center gap-1.5 text-muted-foreground text-xs">
               <ActivityIcon className="size-3" /> Traffic exchanges
             </div>
-            <div className="text-2xl font-semibold tabular-nums">{traffic.length}</div>
+            <div className="font-semibold text-3xl tabular-nums tracking-tight">{trafficTotal ?? "—"}</div>
           </CardHeader>
-          <CardContent className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+          <CardContent className="flex items-center gap-1.5 text-muted-foreground text-xs">
             {settings?.traffic_capture ? (
               <>
                 <LiveDot />
@@ -570,161 +466,121 @@ export default function DashboardPage() {
         </Card>
 
         {/* LLM usage */}
-        <Card className="gap-1">
+        <Card className="min-w-0 gap-3 py-5 [--card-spacing:--spacing(5)]">
           <CardHeader className="pb-0">
-            <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+            <div className="flex items-center gap-1.5 text-muted-foreground text-xs">
               <ZapIcon className="size-3" /> Token usage
             </div>
-            <div className="text-2xl font-semibold tabular-nums">
-              {fmtTokens(displayedTokens.input + displayedTokens.output) || "—"}
+            <div className="font-semibold text-3xl tabular-nums tracking-tight">
+              {tokensLoading ? "—" : fmtTokens(totalTokens.input + totalTokens.output)}
             </div>
           </CardHeader>
-          <CardContent className="text-[10px] text-muted-foreground">
-            In {fmtTokens(displayedTokens.input)} (incl. cache {fmtTokens(displayedTokens.cacheRead)}) · Out{" "}
-            {fmtTokens(displayedTokens.output)}
+          <CardContent className="text-muted-foreground text-xs">
+            Lifetime · {tokenVersion === "new" ? "Metered calls" : "Completed runs"}
           </CardContent>
         </Card>
       </div>
 
       {/* ── Row 2: LLM token usage ── */}
-      <Card className="p-4">
-        {/* Header */}
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center gap-1.5 text-xs font-semibold">
-            <ZapIcon className="size-3.5 text-muted-foreground" />
-            LLM token usage
-            {/* Data source toggle: old = activity stats (includes historical tasks), new = the llm_usage metering ledger (more accurate, only covers data since it was enabled) */}
-            <div className="ml-1 flex gap-0.5 rounded-md border bg-muted/30 p-0.5">
-              {(
-                [
-                  { v: "old", label: "Old" },
-                  { v: "new", label: "New" },
-                ] as const
-              ).map(({ v, label }) => (
-                <button
-                  type="button"
-                  key={v}
-                  onClick={() => setTokenVersion(v)}
-                  title={
-                    v === "new"
-                      ? "New: from the llm_usage metering ledger, exact per call and including aborted runs; only covers data since it was enabled"
-                      : "Old: from activity stats (includes historical tasks); aborted runs are not counted and it cannot break down by model"
-                  }
-                  className={cn(
-                    "rounded px-2 py-0.5 text-[9px] font-medium transition-colors",
-                    tokenVersion === v
-                      ? "bg-background text-foreground shadow-sm"
-                      : "text-muted-foreground hover:text-foreground",
-                  )}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-            <span className="text-[10px] font-normal text-muted-foreground">
-              {tokenVersion === "new" ? "llm_usage" : "activity"}
-            </span>
+      <Card className="min-w-0 gap-5 p-5 sm:p-6">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="space-y-1">
+            <h2 className="flex items-center gap-2 font-semibold text-base">
+              <ZapIcon className="size-4 text-muted-foreground" /> LLM token usage
+            </h2>
+            <p className="max-w-prose text-muted-foreground text-sm">
+              {tokenVersion === "new"
+                ? "Per-call metering, including interrupted runs. Covers calls recorded since metering was enabled."
+                : "Historical completed runs only. Active tasks and conversations; interrupted runs excluded. Dates reflect run completion."}
+            </p>
           </div>
-          {/* Profile tabs */}
-          <div className="flex flex-wrap items-center gap-1">
-            <button
-              type="button"
-              onClick={() => setTokenTab("all")}
-              className={cn(
-                "rounded-md px-2.5 py-1 text-[10px] font-medium transition-colors",
-                tokenTab === "all"
-                  ? "bg-foreground text-background"
-                  : "bg-muted/30 text-muted-foreground hover:text-foreground",
-              )}
-            >
-              All
-            </button>
-            {llmProfiles.map((p) => {
-              const key = Number(p.id);
-              const hasData = tokenByProfile.has(key) || (p.is_default && tokenByProfile.has(defaultProfileId));
-              const resolvedKey = tokenByProfile.has(key) ? key : p.is_default ? defaultProfileId : key;
-              return (
-                <button
-                  type="button"
-                  key={p.id}
-                  onClick={() => setTokenTab(resolvedKey)}
-                  className={cn(
-                    "flex items-center gap-1 rounded-md px-2.5 py-1 text-[10px] font-medium transition-colors",
-                    tokenTab === resolvedKey
-                      ? "bg-foreground text-background"
-                      : "bg-muted/30 text-muted-foreground hover:text-foreground",
-                    !hasData && "opacity-40",
-                  )}
-                >
-                  {p.name}
-                  {p.is_default && (
-                    <span
-                      className={cn(
-                        "rounded px-1 py-0 text-[8px]",
-                        tokenTab === resolvedKey
-                          ? "bg-background/20 text-background"
-                          : "bg-emerald-500/20 text-emerald-400",
-                      )}
-                    >
-                      Default
-                    </span>
-                  )}
-                </button>
-              );
-            })}
+          <div className="flex w-full flex-wrap items-end gap-3 sm:w-auto">
+            <div className="space-y-1.5">
+              <span className="font-medium text-muted-foreground text-xs">Usage source</span>
+              <Select
+                value={tokenVersion}
+                onValueChange={(value) => {
+                  setTokenVersion(value as "old" | "new");
+                  setTokenTab("all");
+                }}
+              >
+                <SelectTrigger aria-label="Usage source" className="w-44">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="new">Metered calls</SelectItem>
+                  <SelectItem value="old">Completed runs</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="min-w-0 flex-1 space-y-1.5 sm:flex-none">
+              <span className="font-medium text-muted-foreground text-xs">Profile</span>
+              <Select value={tokenTab} onValueChange={setTokenTab}>
+                <SelectTrigger aria-label="Usage profile" className="w-full sm:w-56">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All profiles</SelectItem>
+                  {profileOptions.map((profile) => (
+                    <SelectItem key={profile} value={profile}>
+                      {profile.slice(5) || "Unassigned"}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
         </div>
 
         {/* Body: metrics left + bar chart right */}
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-[220px_1fr]">
+        <div className="grid min-w-0 grid-cols-1 gap-6 border-t pt-6 lg:grid-cols-[240px_minmax(0,1fr)] lg:gap-8">
           {/* Left: key metrics */}
           <div className="flex flex-col gap-4">
             {/* Total */}
             <div>
-              <div className="text-[10px] text-muted-foreground">Total (input+output)</div>
-              <div className="mt-0.5 text-3xl font-bold tabular-nums tracking-tight">
-                {fmtTokens(displayedTokens.input + displayedTokens.output) || "—"}
+              <div className="text-muted-foreground text-xs">Lifetime tokens</div>
+              <div className="mt-0.5 font-bold text-3xl tabular-nums tracking-tight">
+                {tokensLoading ? "—" : fmtTokens(breakdown.total)}
               </div>
-              <div className="mt-0.5 text-[10px] text-muted-foreground">{displayedTokens.taskCount} tasks</div>
+              <div className="mt-1 text-muted-foreground text-xs">
+                {tokenTab === "all" ? "All profiles" : tokenTab.slice(5) || "Unassigned"} · input + output
+              </div>
             </div>
 
             {/* Per-type bars */}
             <div className="space-y-3">
               {(() => {
                 // input already includes cache; split into three non-overlapping segments: uncached input + cache hits + output = total.
-                const total = displayedTokens.input + displayedTokens.output;
+                const total = breakdown.total;
                 return [
                   {
                     label: "Input (uncached)",
-                    value: displayedTokens.input - displayedTokens.cacheRead,
-                    barColor: dailyTrendConfig.input.color!,
-                    text: "text-blue-400",
+                    value: breakdown.input,
+                    barColor: dailyTrendConfig.input.color,
+                    text: "text-blue-600 dark:text-blue-400",
                   },
                   {
                     label: "Cache hits",
-                    value: displayedTokens.cacheRead,
-                    barColor: dailyTrendConfig.cacheRead.color!,
-                    text: "text-emerald-400",
+                    value: breakdown.cacheRead,
+                    barColor: dailyTrendConfig.cacheRead.color,
+                    text: "text-emerald-700 dark:text-emerald-400",
                   },
                   {
                     label: "Output",
                     value: displayedTokens.output,
-                    barColor: dailyTrendConfig.output.color!,
-                    text: "text-violet-400",
+                    barColor: dailyTrendConfig.output.color,
+                    text: "text-violet-700 dark:text-violet-400",
                   },
                 ].map(({ label, value, barColor, text }) => {
                   const pct = total > 0 ? (value / total) * 100 : 0;
                   return (
                     <div key={label}>
-                      <div className="mb-1 flex items-center justify-between text-[10px]">
+                      <div className="mb-1 flex items-center justify-between text-xs">
                         <span className="text-muted-foreground">{label}</span>
                         <span className={cn("font-mono font-semibold tabular-nums", text)}>{fmtTokens(value)}</span>
                       </div>
                       <div className="h-1.5 overflow-hidden rounded-full bg-muted">
-                        <div
-                          className="h-full rounded-full transition-all duration-500"
-                          style={{ width: `${pct}%`, background: barColor }}
-                        />
+                        <div className="h-full rounded-full" style={{ width: `${pct}%`, background: barColor }} />
                       </div>
                     </div>
                   );
@@ -735,13 +591,15 @@ export default function DashboardPage() {
             {/* Cache hit rate */}
             {(() => {
               // input already includes cache → hit rate = cache hits / total input.
-              const denominator = displayedTokens.input;
-              const hitPct = denominator > 0 ? Math.round((displayedTokens.cacheRead / denominator) * 100) : 0;
+              const hitPct = breakdown.hitRate;
               return (
-                <div className="flex items-center justify-between rounded-lg border bg-muted/20 px-3 py-2 text-[10px]">
+                <div className="flex items-center justify-between rounded-lg border bg-muted/20 px-3 py-2 text-xs">
                   <span className="text-muted-foreground">Cache hit rate</span>
                   <span
-                    className={cn("font-semibold tabular-nums", hitPct > 50 ? "text-emerald-400" : "text-amber-400")}
+                    className={cn(
+                      "font-semibold tabular-nums",
+                      hitPct > 50 ? "text-emerald-700 dark:text-emerald-400" : "text-amber-700 dark:text-amber-400",
+                    )}
                   >
                     {hitPct}%
                   </span>
@@ -751,9 +609,9 @@ export default function DashboardPage() {
           </div>
 
           {/* Right: daily bar chart */}
-          <div className="flex min-h-0 flex-col">
-            <div className="mb-2 flex items-center justify-between">
-              <div className="flex gap-3 text-[9px] text-muted-foreground">
+          <div className="flex min-h-0 min-w-0 flex-col">
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+              <div className="flex flex-wrap gap-x-4 gap-y-2 text-muted-foreground text-xs">
                 {(["input", "output", "cacheRead"] as const).map((k) => (
                   <span key={k} className="flex items-center gap-1">
                     <span
@@ -778,8 +636,9 @@ export default function DashboardPage() {
                     type="button"
                     key={days}
                     onClick={() => setTokenDays(days)}
+                    aria-pressed={tokenDays === days}
                     className={cn(
-                      "rounded px-2.5 py-0.5 text-[9px] font-medium transition-colors",
+                      "min-h-8 rounded px-3 py-1 font-medium text-xs transition-colors focus-visible:outline-2 focus-visible:outline-ring",
                       tokenDays === days
                         ? "bg-background text-foreground shadow-sm"
                         : "text-muted-foreground hover:text-foreground",
@@ -791,22 +650,34 @@ export default function DashboardPage() {
               </div>
             </div>
 
-            {dailyTokenData.length === 0 ? (
+            <p className="mb-3 text-muted-foreground text-sm">
+              <span className="font-medium text-foreground tabular-nums">{fmtTokens(periodTotal)}</span> tokens · last{" "}
+              {tokenDays} UTC days
+            </p>
+            {periodTotal === 0 ? (
               <div
-                className="flex flex-1 items-center justify-center rounded-lg border bg-muted/10 text-xs text-muted-foreground"
+                className="flex flex-1 items-center justify-center rounded-lg border bg-muted/10 text-muted-foreground text-xs"
                 style={{ minHeight: 180 }}
               >
-                No data
+                {tokensLoading ? "Loading usage…" : "No recorded usage in this period."}
               </div>
             ) : (
-              <ChartContainer config={dailyTrendConfig} className="h-[200px] w-full">
+              <ChartContainer config={dailyTrendConfig} className="aspect-auto h-[260px] w-full sm:h-[300px]">
                 <BarChart data={dailyTokenData} margin={{ top: 4, right: 4, bottom: 0, left: 0 }} maxBarSize={40}>
                   <CartesianGrid vertical={false} />
                   <XAxis
                     dataKey="date"
+                    tickFormatter={(date) =>
+                      new Date(`${date}T00:00:00Z`).toLocaleDateString(undefined, {
+                        month: "short",
+                        day: "numeric",
+                        timeZone: "UTC",
+                      })
+                    }
+                    minTickGap={32}
                     tickLine={false}
                     axisLine={false}
-                    tick={{ fontSize: 10 }}
+                    tick={{ fontSize: 12 }}
                     tickMargin={6}
                     interval="preserveStartEnd"
                   />
@@ -814,8 +685,8 @@ export default function DashboardPage() {
                     tickFormatter={(v) => fmtTokens(Number(v))}
                     tickLine={false}
                     axisLine={false}
-                    tick={{ fontSize: 10 }}
-                    width={44}
+                    tick={{ fontSize: 12 }}
+                    width={56}
                   />
                   <ChartTooltip
                     cursor={false}
@@ -834,9 +705,27 @@ export default function DashboardPage() {
                       />
                     }
                   />
-                  <Bar dataKey="input" stackId="1" fill="var(--color-input)" radius={[0, 0, 0, 0]} />
-                  <Bar dataKey="output" stackId="1" fill="var(--color-output)" radius={[0, 0, 0, 0]} />
-                  <Bar dataKey="cacheRead" stackId="1" fill="var(--color-cacheRead)" radius={[4, 4, 0, 0]} />
+                  <Bar
+                    isAnimationActive={false}
+                    dataKey="input"
+                    stackId="1"
+                    fill="var(--color-input)"
+                    radius={[0, 0, 0, 0]}
+                  />
+                  <Bar
+                    isAnimationActive={false}
+                    dataKey="output"
+                    stackId="1"
+                    fill="var(--color-output)"
+                    radius={[0, 0, 0, 0]}
+                  />
+                  <Bar
+                    isAnimationActive={false}
+                    dataKey="cacheRead"
+                    stackId="1"
+                    fill="var(--color-cacheRead)"
+                    radius={[4, 4, 0, 0]}
+                  />
                 </BarChart>
               </ChartContainer>
             )}
@@ -845,21 +734,21 @@ export default function DashboardPage() {
       </Card>
 
       {/* ── Row 3: Activity feed | Findings ── */}
-      <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
         {/* Activity feed */}
-        <Card className="p-4">
-          <div className="mb-3 flex items-center justify-between">
-            <div className="flex items-center gap-1.5 text-xs font-semibold">
+        <Card className="min-w-0 gap-5 p-5 sm:p-6">
+          <div className="mb-1 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2 font-semibold text-base">
               <ActivityIcon className="size-3.5 text-muted-foreground" />
               Activity feed
             </div>
             <div className="flex items-center gap-2">
-              <span className="text-[10px] text-muted-foreground">
-                {activity.filter((a) => a.kind !== "usage").length} events
+              <span className="text-muted-foreground text-xs">
+                Latest {recentActivity.length} of {activity.filter((entry) => entry.kind !== "usage").length} events
               </span>
               <Link
                 href="/function/tasks"
-                className="flex items-center gap-0.5 text-[10px] text-muted-foreground hover:text-foreground"
+                className="flex items-center gap-0.5 text-muted-foreground text-xs hover:text-foreground"
               >
                 View tasks <ArrowUpRightIcon className="size-3" />
               </Link>
@@ -871,7 +760,7 @@ export default function DashboardPage() {
               const count = activity.filter((a) => a.kind === kind).length;
               if (count === 0) return null;
               return (
-                <span key={kind} className="rounded border bg-muted/20 px-1.5 py-0.5 text-[9px] text-muted-foreground">
+                <span key={kind} className="rounded border bg-muted/20 px-1.5 py-0.5 text-muted-foreground text-xs">
                   {kind} <strong className="text-foreground/70">{count}</strong>
                 </span>
               );
@@ -880,27 +769,29 @@ export default function DashboardPage() {
 
           <div className="divide-y">
             {recentActivity.length === 0 ? (
-              <div className="py-4 text-center text-xs text-muted-foreground">No activity records</div>
+              <div className="py-4 text-center text-muted-foreground text-xs">No activity records</div>
             ) : (
               recentActivity.map((a) => (
-                <div key={a.seq} className="flex gap-2.5 py-2">
+                <div key={a.seq} className="flex gap-3 py-4">
                   <span
                     className={cn(
-                      "shrink-0 self-start rounded border px-1.5 py-0.5 font-mono text-[9px]",
+                      "shrink-0 self-start rounded border px-1.5 py-0.5 font-mono text-xs",
                       workerBg(a.worker),
                     )}
                   >
                     {a.worker}
                   </span>
                   <div className="min-w-0 flex-1">
-                    <div className="text-[11px] font-medium">{kindLabel(a)}</div>
-                    <div className="mt-0.5 truncate text-[10px] text-muted-foreground">{a.summary}</div>
+                    <div className="font-medium text-sm">{kindLabel(a)}</div>
+                    <div className="mt-1 line-clamp-2 break-words text-muted-foreground text-sm leading-relaxed">
+                      {a.summary}
+                    </div>
                   </div>
                   <div className="shrink-0 text-right">
-                    <Badge variant="outline" className="px-1.5 py-0 text-[9px] text-muted-foreground">
+                    <Badge variant="outline" className="px-1.5 py-0 text-muted-foreground text-xs">
                       {a.kind}
                     </Badge>
-                    <div className="mt-0.5 text-[9px] tabular-nums text-muted-foreground">{fmtRel(a.ts)}</div>
+                    <div className="mt-0.5 text-muted-foreground text-xs tabular-nums">{fmtRel(a.ts)}</div>
                   </div>
                 </div>
               ))
@@ -909,15 +800,15 @@ export default function DashboardPage() {
         </Card>
 
         {/* Findings */}
-        <Card className="p-4">
-          <div className="mb-3 flex items-center justify-between">
-            <div className="flex items-center gap-1.5 text-xs font-semibold">
+        <Card className="min-w-0 gap-5 p-5 sm:p-6">
+          <div className="mb-1 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2 font-semibold text-base">
               <BugIcon className="size-3.5 text-muted-foreground" />
               Findings
             </div>
             <Link
               href="/function/findings"
-              className="flex items-center gap-0.5 text-[10px] text-muted-foreground hover:text-foreground"
+              className="flex items-center gap-0.5 text-muted-foreground text-xs hover:text-foreground"
             >
               All <ArrowUpRightIcon className="size-3" />
             </Link>
@@ -925,27 +816,21 @@ export default function DashboardPage() {
 
           <div className="divide-y">
             {recentFindings.length === 0 ? (
-              <div className="py-4 text-center text-xs text-muted-foreground">No findings</div>
+              <div className="py-4 text-center text-muted-foreground text-xs">No findings</div>
             ) : (
               recentFindings.map((f) => (
-                <div key={f.id} className="flex items-start gap-2 py-2">
-                  <StatusBadge
-                    domain="severity"
-                    value={f.severity}
-                    className="mt-0.5 shrink-0 px-1.5 py-0 text-[10px]"
-                  />
+                <div key={f.id} className="flex flex-wrap items-start gap-3 py-4 sm:flex-nowrap">
+                  <StatusBadge domain="severity" value={f.severity} className="mt-0.5 shrink-0 px-1.5 py-0 text-xs" />
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-1.5">
-                      <span className="text-[11px] font-semibold">{f.vulnclass}</span>
+                      <span className="line-clamp-2 font-medium text-sm leading-relaxed">{f.vulnclass}</span>
                       {f.task_description && (
-                        <span className="truncate text-[10px] text-muted-foreground">{f.task_description}</span>
+                        <span className="truncate text-muted-foreground text-xs">{f.task_description}</span>
                       )}
                     </div>
-                    <div className="mt-0.5 line-clamp-2 text-[10px] leading-snug text-muted-foreground">
-                      {f.summary}
-                    </div>
+                    <div className="mt-0.5 line-clamp-2 text-muted-foreground text-sm leading-relaxed">{f.summary}</div>
                   </div>
-                  <span className="shrink-0 text-[9px] tabular-nums text-muted-foreground">{fmtRel(f.ts)}</span>
+                  <span className="shrink-0 text-muted-foreground text-xs tabular-nums">{fmtRel(f.ts)}</span>
                 </div>
               ))
             )}
@@ -956,158 +841,138 @@ export default function DashboardPage() {
       {/* ── Row 4: Task table ── */}
       <Card className="overflow-hidden p-0">
         <div className="flex items-center justify-between border-b px-4 py-3">
-          <div className="flex items-center gap-1.5 text-xs font-semibold">
+          <div className="flex items-center gap-2 font-semibold text-base">
             <ClockIcon className="size-3.5 text-muted-foreground" />
             Tasks
           </div>
           <div className="flex items-center gap-2">
-            <span className="text-[10px] text-muted-foreground">{tasks.length} tasks</span>
+            <span className="text-muted-foreground text-xs">{taskTotal} tasks</span>
             <Link
               href="/function/tasks"
-              className="flex items-center gap-0.5 text-[10px] text-muted-foreground hover:text-foreground"
+              className="flex items-center gap-0.5 text-muted-foreground text-xs hover:text-foreground"
             >
               All <ArrowUpRightIcon className="size-3" />
             </Link>
           </div>
         </div>
-        <table className="w-full border-collapse text-xs">
-          <thead>
-            <tr className="border-b">
-              {["Task", "Status", "Engine", "Goal progress", "In flight", "Last activity"].map((h) => (
-                <th
-                  key={h}
-                  className="px-4 py-2 text-left text-[9px] font-semibold uppercase tracking-widest text-muted-foreground first:pl-4"
-                >
-                  {h}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {sortedTasks.length === 0 ? (
-              <tr>
-                <td colSpan={6} className="px-4 py-6 text-center text-xs text-muted-foreground">
-                  No tasks
-                </td>
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[560px] border-collapse text-sm">
+            <thead>
+              <tr className="border-b">
+                {["Task", "Status", "Created", "Updated"].map((h) => (
+                  <th
+                    key={h}
+                    className="px-4 py-2 text-left font-semibold text-muted-foreground text-xs uppercase tracking-widest first:pl-4"
+                  >
+                    {h}
+                  </th>
+                ))}
               </tr>
-            ) : (
-              sortedTasks.map((t) => {
-                const goalsPct = t.goals_total ? Math.round(((t.goals_met ?? 0) / t.goals_total) * 100) : null;
-                return (
-                  <tr key={t.id} className="border-b last:border-0 transition-colors hover:bg-muted/30">
-                    <td className="max-w-xs px-4 py-3">
-                      <Link href={`/function/tasks/detail?id=${t.id}`} className="group flex flex-col">
-                        <span className="truncate font-medium group-hover:underline">{t.description}</span>
-                        <span className="mt-0.5 truncate font-mono text-[10px] text-muted-foreground">{t.id}</span>
-                      </Link>
-                    </td>
-                    <td className="px-4 py-3">
-                      <StatusBadge domain="task" value={t.status} dot className="px-1.5 py-0 text-[10px]" />
-                    </td>
-                    <td className="px-4 py-3">
-                      <StatusBadge
-                        domain="engine"
-                        value={t.engine_mode ?? "idle"}
-                        className="px-1.5 py-0 text-[10px]"
-                      />
-                    </td>
-                    <td className="px-4 py-3">
-                      {goalsPct !== null ? (
-                        <div className="flex items-center gap-2">
-                          <Progress value={goalsPct} className="h-1 w-14" />
-                          <span className="tabular-nums text-muted-foreground">
-                            {t.goals_met ?? 0}/{t.goals_total}
+            </thead>
+            <tbody>
+              {sortedTasks.length === 0 ? (
+                <tr>
+                  <td colSpan={4} className="px-4 py-6 text-center text-muted-foreground text-xs">
+                    No tasks
+                  </td>
+                </tr>
+              ) : (
+                sortedTasks.map((t) => {
+                  return (
+                    <tr key={t.id} className="border-b transition-colors last:border-0 hover:bg-muted/30">
+                      <td className="max-w-[320px] px-4 py-4">
+                        <Link href={`/function/tasks/detail?id=${t.id}`} className="group flex flex-col">
+                          <span className="truncate font-medium group-hover:underline">
+                            {t.name || t.description || `Task ${t.id}`}
                           </span>
-                        </div>
-                      ) : (
-                        <span className="text-muted-foreground">—</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 tabular-nums">
-                      {(t.in_flight ?? 0) > 0 ? (
-                        <span className="font-semibold">{t.in_flight}</span>
-                      ) : (
-                        <span className="text-muted-foreground">—</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 tabular-nums text-muted-foreground">
-                      {fmtRel(t.last_activity_unix ?? t.created_unix)}
-                    </td>
-                  </tr>
-                );
-              })
-            )}
-          </tbody>
-        </table>
+                          <span className="mt-0.5 truncate font-mono text-muted-foreground text-xs">{t.id}</span>
+                        </Link>
+                      </td>
+                      <td className="px-4 py-3">
+                        <StatusBadge domain="task" value={t.status} dot className="px-1.5 py-0 text-xs" />
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">
+                        {new Date(t.created_at).toLocaleDateString()}
+                      </td>
+                      <td className="px-4 py-3 text-muted-foreground tabular-nums">
+                        {fmtRel(t.last_activity_unix ?? t.created_unix)}
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
       </Card>
 
       {/* ── Row 5: Asset distribution | Traffic status codes | Interception & pending approvals ── */}
-      <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
         {/* Asset distribution */}
-        <Card className="p-4">
+        <Card className="min-w-0 gap-5 p-5 sm:p-6">
           <SectionTitle icon={NetworkIcon} sub="By type">
             Asset distribution
           </SectionTitle>
 
           {assetByType.length === 0 ? (
-            <div className="py-6 text-center text-xs text-muted-foreground">No asset data</div>
+            <div className="py-6 text-center text-muted-foreground text-xs">No asset data</div>
           ) : (
             <div className="flex flex-col gap-2">
               {assetByType.map(([type, count]) => (
                 <div key={type} className="flex items-center gap-2 text-xs">
-                  <span className="w-8 shrink-0 text-right text-[10px] text-muted-foreground">
+                  <span className="w-24 shrink-0 text-right text-muted-foreground text-xs">
                     {ASSET_TYPE_LABELS[type] ?? type}
                   </span>
                   <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
                     <div
-                      className={cn("h-full rounded-full", ASSET_COLORS[type] ?? "bg-slate-400")}
+                      className={cn("h-full rounded-full", ASSET_COLORS[type] ?? "bg-tone-muted")}
                       style={{ width: `${(count / assetMax) * 100}%` }}
                     />
                   </div>
-                  <span className="w-4 text-right tabular-nums">{count}</span>
+                  <span className="min-w-8 text-right tabular-nums">{count}</span>
                 </div>
               ))}
             </div>
           )}
 
-          <div className="mt-3 border-t pt-3 text-[10px] text-muted-foreground">{totalAssets} nodes in total</div>
+          <div className="mt-3 border-t pt-3 text-muted-foreground text-xs">{totalAssets} nodes in total</div>
         </Card>
 
         {/* Traffic status codes */}
-        <Card className="p-4">
-          <SectionTitle icon={ActivityIcon} sub={`${traffic.length} requests`}>
+        <Card className="min-w-0 gap-5 p-5 sm:p-6">
+          <SectionTitle icon={ActivityIcon} sub={`Latest ${traffic.length} requests`}>
             Traffic status codes
           </SectionTitle>
 
           {/* bar chart */}
           {trafficByCodes.length === 0 ? (
-            <div className="py-6 text-center text-xs text-muted-foreground">No traffic data</div>
+            <div className="py-6 text-center text-muted-foreground text-xs">No traffic data</div>
           ) : (
             <>
               <div className="mb-3 flex items-end gap-2" style={{ height: 52 }}>
                 {trafficByCodes.map(({ code, n }) => (
                   <div key={code} className="flex flex-1 flex-col items-center gap-1">
-                    <span className="text-[9px] tabular-nums text-muted-foreground">{n}</span>
+                    <span className="text-muted-foreground text-xs tabular-nums">{n}</span>
                     <div
-                      className={cn("w-full min-h-1 rounded-sm", statusBg(code), "opacity-80")}
+                      className={cn("min-h-1 w-full rounded-sm", statusBg(code), "opacity-80")}
                       style={{ height: Math.max(4, (n / trafficMax) * 36) }}
                     />
-                    <span className={cn("text-[9px] font-mono", statusColor(code))}>{code}</span>
+                    <span className={cn("font-mono text-xs", statusColor(code))}>{code}</span>
                   </div>
                 ))}
               </div>
 
               <div className="border-t pt-2.5">
-                <div className="mb-1.5 text-[10px] text-muted-foreground">Recent requests</div>
+                <div className="mb-1.5 text-muted-foreground text-xs">Recent requests</div>
                 <div className="flex flex-col gap-1.5">
                   {recentTraffic.map((e) => (
-                    <div key={e.id} className="flex items-center gap-1.5 text-[10px]">
+                    <div key={e.id} className="flex items-center gap-1.5 text-xs">
                       <span
                         className={cn(
-                          "shrink-0 rounded border px-1 py-0 font-mono text-[9px]",
+                          "shrink-0 rounded border px-1 py-0 font-mono text-xs",
                           e.method === "GET"
-                            ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400"
-                            : "border-blue-500/30 bg-blue-500/10 text-blue-400",
+                            ? "border-tone-success/30 bg-tone-success/10 text-tone-success"
+                            : "border-tone-info/30 bg-tone-info/10 text-tone-info",
                         )}
                       >
                         {e.method}
@@ -1116,7 +981,7 @@ export default function DashboardPage() {
                         {e.host}
                         {e.url.replace(/^https?:\/\/[^/]+/, "").substring(0, 30)}
                       </span>
-                      <span className={cn("shrink-0 font-mono text-[9px]", statusColor(e.status))}>{e.status}</span>
+                      <span className={cn("shrink-0 font-mono text-xs", statusColor(e.status))}>{e.status}</span>
                     </div>
                   ))}
                 </div>
@@ -1126,19 +991,19 @@ export default function DashboardPage() {
         </Card>
 
         {/* System status & pending approvals */}
-        <Card className="p-4">
+        <Card className="min-w-0 gap-5 p-5 sm:p-6">
           <SectionTitle icon={ShieldCheckIcon}>System status</SectionTitle>
 
           <div className="flex flex-col gap-2">
             <div className="flex items-center justify-between rounded-lg border bg-muted/20 px-3 py-2">
-              <div className="text-[10px] text-muted-foreground">LLM config</div>
+              <div className="text-muted-foreground text-xs">LLM config</div>
               <Badge
                 variant="outline"
                 className={cn(
-                  "text-[10px]",
+                  "text-xs",
                   stats?.llm_configured
-                    ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400"
-                    : "border-red-500/30 bg-red-500/10 text-red-400",
+                    ? "border-tone-success/30 bg-tone-success/10 text-tone-success"
+                    : "border-tone-danger/30 bg-tone-danger/10 text-tone-danger",
                 )}
               >
                 {stats?.llm_configured ? "Configured" : "Not configured"}
@@ -1146,13 +1011,13 @@ export default function DashboardPage() {
             </div>
 
             <div className="flex items-center justify-between rounded-lg border bg-muted/20 px-3 py-2">
-              <div className="text-[10px] text-muted-foreground">Traffic capture</div>
+              <div className="text-muted-foreground text-xs">Traffic capture</div>
               <Badge
                 variant="outline"
                 className={cn(
-                  "text-[10px]",
+                  "text-xs",
                   settings?.traffic_capture
-                    ? "border-violet-500/30 bg-violet-500/10 text-violet-400"
+                    ? "border-violet-500/30 bg-violet-500/10 text-violet-700 dark:text-violet-400"
                     : "text-muted-foreground",
                 )}
               >
@@ -1162,8 +1027,8 @@ export default function DashboardPage() {
 
             {activeProfile && (
               <div className="flex items-center justify-between rounded-lg border bg-muted/20 px-3 py-2">
-                <div className="text-[10px] text-muted-foreground">Active model</div>
-                <span className="font-mono text-[10px]">{activeProfile.model}</span>
+                <div className="text-muted-foreground text-xs">Active model</div>
+                <span className="font-mono text-xs">{activeProfile.model}</span>
               </div>
             )}
           </div>
@@ -1171,25 +1036,25 @@ export default function DashboardPage() {
           {/* pending approvals */}
           {pendingCount > 0 && (
             <div className="mt-3">
-              <div className="mb-1.5 text-[10px] font-medium text-amber-400">Pending approvals ({pendingCount})</div>
+              <div className="mb-1.5 font-medium text-tone-warn text-xs">Pending approvals ({pendingCount})</div>
               <div className="flex flex-col gap-1.5">
                 {pending.slice(0, 3).map((p) => (
                   <Link
                     key={p.id}
                     href="/system/intercept/approvals"
-                    className="flex items-center justify-between rounded-lg border border-amber-500/20 bg-amber-500/5 px-2.5 py-2 hover:bg-amber-500/10"
+                    className="flex items-center justify-between rounded-lg border border-tone-warn/20 bg-tone-warn/5 px-2.5 py-2 hover:bg-tone-warn/10"
                   >
                     <div className="min-w-0">
-                      <div className="text-[10px] font-medium">{p.tool_name}</div>
-                      <div className="text-[9px] text-muted-foreground">{p.agent_name}</div>
+                      <div className="font-medium text-xs">{p.tool_name}</div>
+                      <div className="text-muted-foreground text-xs">{p.agent_name}</div>
                     </div>
-                    <ArrowUpRightIcon className="size-3 shrink-0 text-amber-400" />
+                    <ArrowUpRightIcon className="size-3 shrink-0 text-tone-warn" />
                   </Link>
                 ))}
                 {pendingCount > 3 && (
                   <Link
                     href="/system/intercept/approvals"
-                    className="text-center text-[10px] text-muted-foreground hover:text-foreground"
+                    className="text-center text-muted-foreground text-xs hover:text-foreground"
                   >
                     {pendingCount - 3} more…
                   </Link>
@@ -1199,7 +1064,7 @@ export default function DashboardPage() {
           )}
 
           {pendingCount === 0 && (
-            <div className="mt-3 rounded-lg border bg-muted/10 px-3 py-3 text-center text-[10px] text-muted-foreground">
+            <div className="mt-3 rounded-lg border bg-muted/10 px-3 py-3 text-center text-muted-foreground text-xs">
               <ShieldCheckIcon className="mx-auto mb-1 size-4 text-emerald-500/50" />
               No pending interception approvals
             </div>

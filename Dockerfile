@@ -25,6 +25,8 @@ RUN npm run build:static
 # binary is CGO-free, so this stage runs on the build platform and cross-compiles
 # to $TARGETARCH without QEMU.
 FROM --platform=$BUILDPLATFORM golang:1.26-bookworm AS build
+# bishopfox/sliver v1.15 requires go >= 1.27.3; let the go command fetch that toolchain.
+ENV GOTOOLCHAIN=auto
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download

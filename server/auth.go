@@ -1,9 +1,12 @@
 package server
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/subtle"
+	"database/sql"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log"
 	"math/big"
@@ -197,6 +200,9 @@ func jwtSubject(tokenStr string, key []byte) string {
 // approver is who a human decision is recorded for: the subject of the
 // request's session token.
 func (s *Server) approver(r *http.Request) string {
+	if u := requestUser(r); u != nil {
+		return u.Username
+	}
 	return jwtSubject(extractToken(r), s.jwtKey)
 }
 
@@ -217,20 +223,39 @@ func extractToken(r *http.Request) string {
 func (s *Server) requireAuth(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		p := r.URL.Path
-		if strings.HasPrefix(p, "/api/auth/") || p == "/api/health" {
+		if r.Method != "GET" && (strings.HasPrefix(p, "/api/collab/") || strings.HasPrefix(p, "/api/accounts") || strings.HasPrefix(p, "/api/auth/")) && !strings.HasSuffix(p, "/attachments") {
+			r.Body = http.MaxBytesReader(w, r.Body, 2*1024*1024)
+		}
+		if p == "/api/auth/status" || p == "/api/auth/init" || p == "/api/auth/login" || p == "/api/health" {
 			h.ServeHTTP(w, r)
 			return
 		}
-		tok := extractToken(r)
-		if tok == "" {
-			writeErr(w, 401, "Unauthorized")
+		u, err := s.sessionUser(r)
+		if err != nil {
+			if !errors.Is(err, sql.ErrNoRows) {
+				writeErr(w, 503, errDataSourceUnavailable)
+			} else {
+				writeErr(w, 401, "Unauthorized")
+			}
 			return
 		}
-		if !verifyJWT(tok, s.jwtKey) {
-			writeErr(w, 401, "token is invalid or expired")
+		// Existing APIs expose global data and command-capable agents. Members use
+		// dedicated projections instead of allowing arbitrary legacy subroutes.
+		if !u.Admin && !strings.HasPrefix(p, "/api/collab/") && !strings.HasPrefix(p, "/api/auth/") {
+			writeErr(w, 404, "Not found")
 			return
 		}
-		h.ServeHTTP(w, r)
+		r = r.WithContext(context.WithValue(r.Context(), identityKey{}, u))
+		// Persist admin mutation attempts before invoking legacy execution/settings handlers.
+		if u.Admin && r.Method != "GET" && r.Method != "HEAD" && !strings.HasPrefix(p, "/api/collab/") && !strings.HasPrefix(p, "/api/auth/") && !strings.HasPrefix(p, "/api/accounts") && p != "/api/collaboration-limits" {
+			if _, err = s.m.pg.ExecContext(r.Context(), `INSERT INTO collaboration_audit(actor_id,action,subject) VALUES($1,'administration.request',$2)`, u.ID, r.Method+" "+p); err != nil {
+				writeErr(w, 503, errDataSourceUnavailable)
+				return
+			}
+		}
+		ctx, cancel := context.WithCancel(r.Context())
+		defer cancel()
+		h.ServeHTTP(&revocableWriter{ResponseWriter: w, s: s, r: r, cancel: cancel}, r.WithContext(ctx))
 	})
 }
 
@@ -318,19 +343,15 @@ func (s *Server) authInit(w http.ResponseWriter, r *http.Request) {
 	// INSERT ... ON CONFLICT DO NOTHING instead of an upsert: the GetSetting above is
 	// only a fast-fail path; the real "first-set-only" guarantee rests on the primary
 	// key. bcrypt runs tens of milliseconds, another request may set the password meanwhile, and the read check itself can fail under an outage.
-	inserted, err := pg.InsertSettingIfAbsent(authPassKey, string(hash))
+	id, err := s.initializeLocalAdmin(r, string(hash))
 	if err != nil {
-		writeErr(w, 500, "Save failed: "+err.Error())
-		return
-	}
-	if !inserted {
-		writeErr(w, 403, "Password is already set")
+		writeErr(w, 409, "Account initialization failed or already initialized")
 		return
 	}
 	s.setupMu.Lock()
 	s.setupToken = ""
 	s.setupMu.Unlock()
-	tok, err := signJWT(s.jwtKey)
+	tok, err := s.issueSession(r, id)
 	if err != nil {
 		writeErr(w, 500, "token generation failed")
 		return
@@ -342,53 +363,7 @@ func (s *Server) authInit(w http.ResponseWriter, r *http.Request) {
 // token (this route is under /api/auth/* which requireAuth exempts, so the token
 // is validated here) AND the current password.
 func (s *Server) authChangePassword(w http.ResponseWriter, r *http.Request) {
-	pg := s.pg(w)
-	if pg == nil {
-		return
-	}
-	if !verifyJWT(extractToken(r), s.jwtKey) {
-		writeErr(w, 401, "Unauthorized")
-		return
-	}
-	var req struct {
-		OldPassword string `json:"old_password"`
-		NewPassword string `json:"new_password"`
-	}
-	if err := decode(r, &req); err != nil {
-		writeErr(w, 400, "Invalid request format")
-		return
-	}
-	if req.NewPassword == "" {
-		writeErr(w, 400, "New password cannot be empty")
-		return
-	}
-	if msg := validatePassword(req.NewPassword); msg != "" {
-		writeErr(w, 400, msg)
-		return
-	}
-	hash, ok, err := pg.GetSetting(authPassKey)
-	if err != nil {
-		writeErr(w, 503, errDataSourceUnavailable)
-		return
-	}
-	if !ok || hash == "" {
-		writeErr(w, 403, "Password not initialized; set a password first")
-		return
-	}
-	if err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(req.OldPassword)); err != nil {
-		writeErr(w, 401, "Current password is wrong")
-		return
-	}
-	newHash, err := bcrypt.GenerateFromPassword([]byte(req.NewPassword), bcrypt.DefaultCost)
-	if err != nil {
-		writeErr(w, 500, "Password encryption failed")
-		return
-	}
-	if err := pg.SetSetting(authPassKey, string(newHash)); err != nil {
-		writeErr(w, 500, "Save failed: "+err.Error())
-		return
-	}
-	writeJSON(w, 200, map[string]any{"ok": true})
+	s.changeLocalPassword(w, r, false)
 }
 
 // POST /api/auth/login — validates username/password and returns a JWT.
@@ -397,7 +372,7 @@ func (s *Server) authLogin(w http.ResponseWriter, r *http.Request) {
 	if pg == nil {
 		return
 	}
-	s.login(w, r, pg.GetSetting)
+	s.accountLogin(w, r)
 }
 
 // login is authLogin past the data-source check; getSetting is pg.GetSetting,
@@ -445,3 +420,27 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request, getSetting func(s
 	}
 	writeJSON(w, 200, map[string]any{"token": tok})
 }
+
+// Legacy SSE handlers also stop delivering after account/session revocation.
+type revocableWriter struct {
+	http.ResponseWriter
+	s      *Server
+	r      *http.Request
+	cancel context.CancelFunc
+}
+
+func (w *revocableWriter) Write(p []byte) (int, error) {
+	if strings.HasPrefix(w.Header().Get("Content-Type"), "text/event-stream") {
+		if _, err := w.s.sessionUser(w.r); err != nil {
+			w.cancel()
+			return 0, fmt.Errorf("session revoked")
+		}
+	}
+	return w.ResponseWriter.Write(p)
+}
+func (w *revocableWriter) Flush() {
+	if f, ok := w.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+func (w *revocableWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }

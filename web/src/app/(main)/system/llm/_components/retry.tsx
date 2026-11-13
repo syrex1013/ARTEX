@@ -56,7 +56,8 @@ export const RETRY_LAYERS = {
     where: "SDK · before a 200 arrives",
     trigger:
       "Cannot connect or no 200 yet: network-layer errors such as connection reset / read-write timeout / DNS failure, plus HTTP 408, 429, 500, 502, 503, 504.",
-    skips: "The remaining status codes (400 / 401 / 403 / 404 / 413 / 422 etc.) are deterministic rejections — resending fails the same way, so they bubble up directly.",
+    skips:
+      "The remaining status codes (400 / 401 / 403 / 404 / 413 / 422 etc.) are deterministic rejections: resending fails the same way, so they bubble up directly.",
     desc: "Resends the same request verbatim. Once the stream has started (a 200 was received), a mid-stream drop is no longer this layer's business.",
     attemptsLabel: "Retry attempts",
     defAttempts: 3,
@@ -67,8 +68,9 @@ export const RETRY_LAYERS = {
     title: "Empty-response retry",
     where: "SDK · openai format only",
     trigger:
-      "HTTP 200 with a normal stop finish_reason, yet not a single content block in the response — gateway empty frames, dropped thinking-field frames and sampling hiccups all look like this.",
-    skips: "Empty because of max_tokens truncation does not count (fix that by raising the output cap; resending just hits it again).",
+      "HTTP 200 with a normal stop finish_reason, yet not a single content block in the response: gateway empty frames, dropped thinking-field frames and sampling hiccups all look like this.",
+    skips:
+      "Empty because of max_tokens truncation does not count (fix that by raising the output cap; resending just hits it again).",
     desc: "Resends the entire prompt, so it is relatively expensive on long contexts; keep the count small.",
     attemptsLabel: "Retry attempts",
     defAttempts: 2,
@@ -79,7 +81,7 @@ export const RETRY_LAYERS = {
     title: "Same-provider safe-window retry",
     where: "This project · before any output is delivered",
     trigger:
-      "Trouble only after the stream is established (a 200 received): mid-stream disconnects, provider overloaded, in-stream 429 / 5xx error events — while not a single token has been handed to the caller yet.",
+      "Trouble only after the stream is established (a 200 received): mid-stream disconnects, provider overloaded, in-stream 429 / 5xx error events, while not a single token has been handed to the caller yet.",
     skips:
       "Quota exhausted (402 / insufficient_quota, handed to the pool to switch configs), context too long (413 / context length, handed to compression), and deterministic rejections (400 / 401 / 403 / 404 / 422) are never retried.",
     desc: "Replays the same request on the same config. Since no output has been delivered yet, the replay cannot duplicate model output or tool executions.",
@@ -92,7 +94,7 @@ export const RETRY_LAYERS = {
     title: "Pool breaker",
     where: "This project · process-level, one global copy",
     trigger:
-      "Trips when transient failures (429, 5xx, network errors) accumulate consecutively to the threshold; deterministic failures — insufficient balance (402), dead key (401 / 403), missing model (404) — ignore the threshold and trip on the first occurrence.",
+      "Trips when transient failures (429, 5xx, network errors) accumulate consecutively to the threshold; deterministic failures, such as insufficient balance (402), dead key (401 / 403) and missing model (404), ignore the threshold and trip on the first occurrence.",
     skips: "One success resets the counter, so an occasionally flaky config is not slowly ground into tripping.",
     desc: "After tripping it enters cooldown, and while cooling the pool skips the config outright. State is persisted, surviving restarts.",
     attemptsLabel: "Consecutive failures to trip",
@@ -104,8 +106,9 @@ export const RETRY_LAYERS = {
     title: "Intent rerun",
     where: "This project · process-level, one global copy",
     trigger:
-      "The earlier layers could not save it: the worker ends with model_error — inner retries all exhausted, or the stream broke only after output delivery had started (when replay is unsafe and only a full rerun works).",
-    skips: "Quota exhaustion is already handled by the pool switching configs and is not rerun here; when the task is paused / aborted / wrapping up it yields immediately, spending no backoff time.",
+      "The earlier layers could not save it: the worker ends with model_error (inner retries all exhausted), or the stream broke only after output delivery had started (when replay is unsafe and only a full rerun works).",
+    skips:
+      "Quota exhaustion is already handled by the pool switching configs and is not rerun here; when the task is paused / aborted / wrapping up it yields immediately, spending no backoff time.",
     desc: "Reruns the whole intent from scratch. It is the outermost layer, so one rerun multiplies the inner layers' attempt counts once more.",
     attemptsLabel: "Rerun attempts",
     defAttempts: 2,
@@ -242,8 +245,9 @@ export function ProfileRetryFields({
       <div className="grid gap-0.5">
         <Label className="text-sm">Retry overrides</Label>
         <p className="text-muted-foreground text-xs">
-          Applies only to this profile, overriding the global defaults from "Retry & backoff". Each field left empty = follow the global; attempts -1 = disable this layer;
-          a filled interval replaces the exponential backoff with a fixed one. The breaker and intent rerun are process-level and can only be tuned on the global page.
+          Applies only to this profile, overriding the global defaults from "Retry & backoff". Each field left empty =
+          follow the global; attempts -1 = disable this layer; a filled interval replaces the exponential backoff with a
+          fixed one. The breaker and intent rerun are process-level and can only be tuned on the global page.
         </p>
       </div>
       {(["connect", "empty", "stream"] as const).map((k) => (
@@ -312,11 +316,14 @@ export function RetryPolicyPanel() {
     <div className="grid gap-4">
       <div className="rounded-lg border bg-muted/30 p-3 text-muted-foreground text-xs leading-relaxed">
         A failed model call passes through five retry layers in turn, innermost to outermost:
-        <span className="text-foreground"> connect → empty response → same-provider safe window → pool breaker → intent rerun</span>
+        <span className="text-foreground">
+          {" "}
+          connect → empty response → same-provider safe window → pool breaker → intent rerun
+        </span>
         . An outer layer only gets what the inner ones exhausted, so the attempt counts
-        <span className="text-foreground">multiply</span>
-        — max out every layer and a single hiccup can burn dozens of requests.
-        Leaving everything empty keeps the current defaults, identical to the behavior before this page existed. The first three layers can be overridden per model profile.
+        <span className="text-foreground">multiply</span>: max out every layer and a single hiccup can burn dozens of
+        requests. Leaving everything empty keeps the current defaults, identical to the behavior before this page
+        existed. The first three layers can be overridden per model profile.
       </div>
 
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">

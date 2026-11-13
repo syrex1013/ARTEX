@@ -50,7 +50,7 @@ export default function SetupPage() {
     try {
       const { token } = await api.initPassword(password, setupToken.trim());
       auth.setToken(token);
-      router.replace("/function/tasks");
+      router.replace("/engagements");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Initialization failed");
     } finally {
@@ -77,16 +77,18 @@ export default function SetupPage() {
       <div className="flex w-full items-center justify-center bg-background p-8 lg:w-2/3">
         <div className="w-full max-w-md space-y-10 py-24 lg:py-32">
           <div className="space-y-4 text-center">
-            <h2 className="text-2xl font-medium tracking-tight">{unavailable ? "Cannot confirm initialization state" : "Set initial password"}</h2>
+            <h2 className="font-medium text-2xl tracking-tight">
+              {unavailable ? "Cannot confirm initialization state" : "Set initial password"}
+            </h2>
             <p className="mx-auto max-w-xl text-muted-foreground">
               {unavailable
-                ? "The backend or database is temporarily unavailable. To avoid overwriting a password already set on this instance, setup is temporarily closed — restore the service and try again."
+                ? "The backend or database is temporarily unavailable. To avoid overwriting a password already set on this instance, setup is temporarily closed. Restore the service and try again."
                 : "First time using ARTEX? Enter the setup token from the server log, then set a login password for the account (at least 12 characters)"}
             </p>
           </div>
           {unavailable ? (
             <div className="flex flex-col gap-4">
-              {error && <p className="text-center text-sm text-destructive">{error}</p>}
+              {error && <p className="text-center text-destructive text-sm">{error}</p>}
               <Button type="button" className="w-full" onClick={() => window.location.reload()}>
                 Retry
               </Button>
@@ -126,7 +128,7 @@ export default function SetupPage() {
                   autoComplete="new-password"
                 />
               </div>
-              {error && <p className="text-sm text-destructive">{error}</p>}
+              {error && <p className="text-destructive text-sm">{error}</p>}
               <Button
                 type="submit"
                 className="w-full"

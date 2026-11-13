@@ -49,6 +49,7 @@ func decodeConversationRequest(w http.ResponseWriter, r *http.Request, value any
 type conversationListItem struct {
 	*db.Conversation
 	Running bool `json:"running"`
+	Queued  int  `json:"queued,omitempty"` // messages waiting for the current run to finish
 }
 
 func (s *Server) pgListConversations(w http.ResponseWriter, r *http.Request) {
@@ -64,7 +65,7 @@ func (s *Server) pgListConversations(w http.ResponseWriter, r *http.Request) {
 	items := make([]conversationListItem, 0, len(cs))
 	s.chatMu.Lock()
 	for _, c := range cs {
-		items = append(items, conversationListItem{Conversation: c, Running: s.chatBusy[s.convBusyKey(c.ID)]})
+		items = append(items, conversationListItem{Conversation: c, Running: s.chatBusy[s.convBusyKey(c.ID)], Queued: len(s.convQueue[s.convBusyKey(c.ID)])})
 	}
 	s.chatMu.Unlock()
 	writeJSON(w, 200, map[string]any{"conversations": items})
@@ -120,6 +121,12 @@ func (s *Server) pgCreateConversation(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeErr(w, 500, err.Error())
 		return
+	}
+	if u := requestUser(r); u != nil {
+		if _, err = pg.Exec(`UPDATE conversations SET owner_id=$2 WHERE id=$1`, c.ID, u.ID); err != nil {
+			writeErr(w, 503, errDataSourceUnavailable)
+			return
+		}
 	}
 	writeJSON(w, 200, c)
 }
@@ -302,6 +309,41 @@ func (s *Server) pgDeleteConversationsBatch(w http.ResponseWriter, r *http.Reque
 
 func (s *Server) convBusyKey(id int64) string { return "conv-" + strconv.FormatInt(id, 10) }
 
+// cancelQueuedConvMessage removes one queued chat-page message (by persisted
+// activity id) before it launches. The human turn row stays in the transcript;
+// this only stops the agent from answering it.
+func (s *Server) cancelQueuedConvMessage(w http.ResponseWriter, r *http.Request) {
+	_, c, ok := s.convByID(w, r)
+	if !ok {
+		return
+	}
+	qid, err := strconv.ParseInt(r.PathValue("qid"), 10, 64)
+	if err != nil {
+		writeErr(w, 400, "invalid queued message id")
+		return
+	}
+	busyKey := s.convBusyKey(c.ID)
+	s.chatMu.Lock()
+	q := s.convQueue[busyKey]
+	removed := false
+	for i, item := range q {
+		if item.qid == qid {
+			s.convQueue[busyKey] = append(q[:i], q[i+1:]...)
+			removed = true
+			break
+		}
+	}
+	if len(s.convQueue[busyKey]) == 0 {
+		delete(s.convQueue, busyKey)
+	}
+	s.chatMu.Unlock()
+	if !removed {
+		writeErr(w, 404, "queued message not found")
+		return
+	}
+	writeJSON(w, 200, map[string]any{"ok": true})
+}
+
 // pgConversationMessages returns steps after ?since=cursor plus whether a turn is
 // still running (so the client knows to keep polling). Same item shape as the task
 // activity stream, so the frontend transcript renderer is reused verbatim.
@@ -314,6 +356,7 @@ func (s *Server) pgConversationMessages(w http.ResponseWriter, r *http.Request) 
 	limit := atoiDefault(q.Get("limit"), 200)
 	s.chatMu.Lock()
 	running := s.chatBusy[s.convBusyKey(c.ID)]
+	queued := len(s.convQueue[s.convBusyKey(c.ID)])
 	s.chatMu.Unlock()
 
 	// Incremental tail: ?since=N returns steps after id N (ASC) — used by the live
@@ -325,7 +368,7 @@ func (s *Server) pgConversationMessages(w http.ResponseWriter, r *http.Request) 
 			writeErr(w, 500, err.Error())
 			return
 		}
-		writeJSON(w, 200, map[string]any{"items": activityDTOs(items), "cursor": cursor, "running": running, "hasMore": false})
+		writeJSON(w, 200, map[string]any{"items": activityDTOs(items), "cursor": cursor, "running": running, "queued": queued, "hasMore": false})
 		return
 	}
 
@@ -342,7 +385,7 @@ func (s *Server) pgConversationMessages(w http.ResponseWriter, r *http.Request) 
 	if n := len(items); n > 0 {
 		cursor = items[n-1].ID
 	}
-	writeJSON(w, 200, map[string]any{"items": activityDTOs(items), "cursor": cursor, "running": running, "hasMore": hasMore})
+	writeJSON(w, 200, map[string]any{"items": activityDTOs(items), "cursor": cursor, "running": running, "queued": queued, "hasMore": hasMore})
 }
 
 // pgConversationMsgDetail lazily returns one step's full detail blob.
@@ -420,27 +463,49 @@ func (s *Server) pgSendConversationMessage(w http.ResponseWriter, r *http.Reques
 
 	busyKey := s.convBusyKey(c.ID)
 	s.chatMu.Lock()
-	if s.chatBusy[busyKey] {
+	busy := s.chatBusy[busyKey]
+	if busy {
+		q := &queuedConv{conv: c, busyKey: busyKey, agentMessage: agentMessage, message: msg, attachments: req.Attachments}
+		s.convQueue[busyKey] = append(s.convQueue[busyKey], q)
+		position := len(s.convQueue[busyKey])
 		s.chatMu.Unlock()
-		writeErr(w, 409, "This conversation is still processing the previous message; please wait")
+		s.persistConvHumanTurn(pg, c, msg, req.Attachments, q)
+		writeJSON(w, 202, map[string]any{"status": "queued", "position": position})
 		return
 	}
 	s.chatBusy[busyKey] = true
 	s.chatMu.Unlock()
 
-	// persist + float the human turn; auto-title the thread from the first message.
-	// Worker is the agent key (not "user") so the transcript stays a single lane
-	// (no worker chips) — the kind='user' already right-aligns it as a human bubble.
-	// With attachments, Detail carries {text, attachments} JSON so the transcript
-	// renders attachment cards; without, Detail is the full text (Summary is truncated,
-	// so the transcript lazy-loads Detail to show the message untruncated).
-	ua := userActivityWithAttachments(c.AgentKey, msg, req.Attachments)
+	s.persistConvHumanTurn(pg, c, msg, req.Attachments, nil)
+
+	// Append the uploaded files' ABSOLUTE paths so the ChatAgent opens them with its
+	// Read/Bash tools. baseDir = the agent's per-session CWD (<workDir>/sessions/
+	// conv-<id>/), matching chatUpload's landing dir and agent/chat.go's sessionWorkDir
+	// — busyKey == convBusyKey(c.ID) == "conv-<id>" == that session id.
+	baseDir := filepath.Join(s.m.dir, "sessions", busyKey)
+	s.runConversation(c, composeAgentMessage(agentMessage, req.Attachments, baseDir), busyKey, msg)
+	writeJSON(w, 202, map[string]any{"status": "accepted"})
+}
+
+// persistConvHumanTurn persists + floats the human turn; auto-titles the thread
+// from the first message. Worker is the agent key (not "user") so the transcript
+// stays a single lane (no worker chips) — the kind='user' already right-aligns it
+// as a human bubble. With attachments, Detail carries {text, attachments} JSON so
+// the transcript renders attachment cards; without, Detail is the full text
+// (Summary is truncated, so the transcript lazy-loads Detail to show the message
+// untruncated).
+func (s *Server) persistConvHumanTurn(pg *db.DB, c *db.Conversation, msg string, atts []chatAttachment, q *queuedConv) {
+	ua := userActivityWithAttachments(c.AgentKey, msg, atts)
 	ua.Summary = firstLine(msg, 200)
 	if ua.Detail == "" {
 		ua.Detail = msg
 	}
-	if _, err := pg.AppendConvActivity(c.ID, ua); err != nil {
+	id, err := pg.AppendConvActivity(c.ID, ua)
+	if err != nil {
 		log.Printf("[conv %d] append user msg failed: %v", c.ID, err)
+	}
+	if q != nil {
+		q.qid = id
 	}
 	if c.Title == "" || c.Title == "New conversation" {
 		title := firstLine(msg, 40)
@@ -450,14 +515,43 @@ func (s *Server) pgSendConversationMessage(w http.ResponseWriter, r *http.Reques
 		_ = pg.RenameConversation(c.ID, title)
 	}
 	_ = pg.TouchConversation(c.ID)
+}
 
+// drainConvQueue launches the next queued conversation message after a run
+// finishes; called from runConversationTurn's cleanup. Re-enqueues at the front
+// if the conversation became busy again.
+func (s *Server) drainConvQueue(busyKey string) {
+	s.chatMu.Lock()
+	q := s.convQueue[busyKey]
+	var next *queuedConv
+	if len(q) > 0 {
+		next = q[0]
+		if len(q) == 1 {
+			delete(s.convQueue, busyKey)
+		} else {
+			s.convQueue[busyKey] = q[1:]
+		}
+	}
+	busyAgain := s.chatBusy[busyKey]
+	if next != nil && !busyAgain {
+		// Re-mark busy here (the finished turn already cleared it) so a message that
+		// arrives between this drain and the goroutine start queues instead of racing.
+		s.chatBusy[busyKey] = true
+	}
+	s.chatMu.Unlock()
+	if next == nil {
+		return
+	}
+	if busyAgain {
+		s.chatMu.Lock()
+		s.convQueue[busyKey] = append([]*queuedConv{next}, s.convQueue[busyKey]...)
+		s.chatMu.Unlock()
+		return
+	}
 	// Append the uploaded files' ABSOLUTE paths so the ChatAgent opens them with its
-	// Read/Bash tools. baseDir = the agent's per-session CWD (<workDir>/sessions/
-	// conv-<id>/), matching chatUpload's landing dir and agent/chat.go's sessionWorkDir
-	// — busyKey == convBusyKey(c.ID) == "conv-<id>" == that session id.
-	baseDir := filepath.Join(s.m.dir, "sessions", busyKey)
-	s.runConversation(c, composeAgentMessage(agentMessage, req.Attachments, baseDir), busyKey, msg)
-	writeJSON(w, 202, map[string]any{"status": "accepted"})
+	// Read/Bash tools; baseDir matches the direct-send path in pgSendConversationMessage.
+	baseDir := filepath.Join(s.m.dir, "sessions", next.busyKey)
+	s.runConversation(next.conv, composeAgentMessage(next.agentMessage, next.attachments, baseDir), next.busyKey, next.message)
 }
 
 // runConversation runs ONE agent turn on a conversation in a background goroutine
@@ -502,6 +596,7 @@ func (s *Server) runConversationTurn(ctx context.Context, cancel context.CancelC
 		delete(s.chatBusy, busyKey)
 		delete(s.chatCancel, busyKey)
 		s.chatMu.Unlock()
+		s.drainConvQueue(busyKey)
 	}()
 	// Only the first turn executes a historical retest. Follow-up conversation
 	// turns may explain the sealed result; the result tool refuses to overwrite it.

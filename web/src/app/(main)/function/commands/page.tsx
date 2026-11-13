@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Empty, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
@@ -43,7 +44,7 @@ function toolInput(raw: string): string {
 function truncate(s: string, maxLen: number): string {
   const first = s.split("\n")[0]; // single-line preview
   if (first.length <= maxLen) return first;
-  return first.slice(0, maxLen) + "…";
+  return `${first.slice(0, maxLen)}…`;
 }
 
 const PAGE_SIZES = [25, 50, 100];
@@ -130,7 +131,7 @@ export default function CommandsPage() {
       <div className="flex items-center justify-between gap-4">
         <div className="flex items-center gap-2">
           <TerminalIcon className="h-5 w-5 text-muted-foreground" />
-          <h1 className="text-xl font-semibold tracking-tight">Tool executions</h1>
+          <h1 className="font-semibold text-xl tracking-tight">Tool executions</h1>
           <Badge variant="secondary">{total}</Badge>
         </div>
       </div>
@@ -170,9 +171,9 @@ export default function CommandsPage() {
           Stats
         </Button>
 
-        <div className="ml-auto flex items-center gap-2 text-xs text-muted-foreground">
+        <div className="ml-auto flex items-center gap-2 text-muted-foreground text-xs">
           <span className="tabular-nums">
-            {rangeStart}–{rangeEnd} / {total}
+            {rangeStart}-{rangeEnd} / {total}
           </span>
           <Button
             variant="outline"
@@ -222,8 +223,15 @@ export default function CommandsPage() {
                   </TableRow>
                 ) : commands.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="py-12 text-center text-sm text-muted-foreground">
-                      No tool execution records yet
+                    <TableCell colSpan={6} className="py-12 text-center">
+                      <Empty>
+                        <EmptyHeader>
+                          <EmptyMedia variant="icon">
+                            <TerminalIcon />
+                          </EmptyMedia>
+                          <EmptyTitle>No tool execution records yet</EmptyTitle>
+                        </EmptyHeader>
+                      </Empty>
                     </TableCell>
                   </TableRow>
                 ) : (
@@ -233,17 +241,17 @@ export default function CommandsPage() {
                       className={cn("cursor-pointer", selected?.id === cmd.id && "bg-accent hover:bg-accent")}
                       onClick={() => setSelected(cmd)}
                     >
-                      <TableCell className="text-xs text-muted-foreground tabular-nums">
+                      <TableCell className="text-muted-foreground text-xs tabular-nums">
                         {fmtTime(cmd.created_at)}
                       </TableCell>
-                      <TableCell className="text-xs font-mono text-muted-foreground">#{cmd.exploration_id}</TableCell>
+                      <TableCell className="font-mono text-muted-foreground text-xs">#{cmd.exploration_id}</TableCell>
                       <TableCell>
-                        <Badge variant="outline" className="text-xs font-mono">
+                        <Badge variant="outline" className="font-mono text-xs">
                           {cmd.worker || "-"}
                         </Badge>
                       </TableCell>
                       <TableCell>
-                        <Badge variant="secondary" className="text-xs font-mono">
+                        <Badge variant="secondary" className="font-mono text-xs">
                           {cmd.tool || "-"}
                         </Badge>
                       </TableCell>
@@ -258,7 +266,7 @@ export default function CommandsPage() {
                             Failed
                           </Badge>
                         ) : (
-                          <Badge variant="secondary" className="text-xs text-emerald-600">
+                          <Badge variant="secondary" className="text-emerald-600 text-xs">
                             Success
                           </Badge>
                         )}
@@ -287,7 +295,7 @@ export default function CommandsPage() {
                   {statsErrors > 0 && (
                     <>
                       {" · Failed "}
-                      <span className="tabular-nums text-red-600 dark:text-red-400">{statsErrors}</span>
+                      <span className="text-red-600 tabular-nums dark:text-red-400">{statsErrors}</span>
                     </>
                   )}
                 </>
@@ -300,16 +308,18 @@ export default function CommandsPage() {
               <Loader2Icon className="mx-auto h-5 w-5 animate-spin text-muted-foreground" />
             </div>
           ) : stats.length === 0 ? (
-            <div className="py-10 text-center text-sm text-muted-foreground">No stats data</div>
+            <div className="py-10 text-center text-muted-foreground text-sm">No stats data</div>
           ) : (
             <div className="-mr-2 max-h-[55vh] space-y-1 overflow-auto pr-2">
               {stats.map((s) => (
                 <div key={s.tool} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-md p-2">
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
-                      <span className="truncate font-mono text-xs font-medium">{s.tool}</span>
+                      <span className="truncate font-medium font-mono text-xs">{s.tool}</span>
                       {s.errors > 0 && (
-                        <span className="text-[11px] tabular-nums text-red-600 dark:text-red-400">Failed {s.errors}</span>
+                        <span className="text-[11px] text-red-600 tabular-nums dark:text-red-400">
+                          Failed {s.errors}
+                        </span>
                       )}
                     </div>
                     <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-muted">
@@ -320,8 +330,8 @@ export default function CommandsPage() {
                     </div>
                   </div>
                   <div className="text-right">
-                    <div className="text-xs font-semibold tabular-nums">{s.total}</div>
-                    <div className="text-[11px] tabular-nums text-muted-foreground">
+                    <div className="font-semibold text-xs tabular-nums">{s.total}</div>
+                    <div className="text-[11px] text-muted-foreground tabular-nums">
                       {statsTotal > 0 ? ((s.total / statsTotal) * 100).toFixed(1) : "0.0"}%
                     </div>
                   </div>
@@ -340,13 +350,13 @@ export default function CommandsPage() {
                 <SheetTitle className="pr-8">Tool execution details</SheetTitle>
                 <SheetDescription>{fmtTime(selected.created_at)}</SheetDescription>
                 <div className="flex flex-wrap items-center gap-2 pt-2">
-                  <Badge variant="outline" className="text-xs font-mono">
+                  <Badge variant="outline" className="font-mono text-xs">
                     #{selected.exploration_id}
                   </Badge>
-                  <Badge variant="outline" className="text-xs font-mono">
+                  <Badge variant="outline" className="font-mono text-xs">
                     {selected.worker || "-"}
                   </Badge>
-                  <Badge variant="secondary" className="text-xs font-mono">
+                  <Badge variant="secondary" className="font-mono text-xs">
                     {selected.tool || "-"}
                   </Badge>
                   {selected.is_error ? (
@@ -354,7 +364,7 @@ export default function CommandsPage() {
                       Failed
                     </Badge>
                   ) : (
-                    <Badge variant="secondary" className="text-xs text-emerald-600">
+                    <Badge variant="secondary" className="text-emerald-600 text-xs">
                       Success
                     </Badge>
                   )}
@@ -362,19 +372,19 @@ export default function CommandsPage() {
               </SheetHeader>
               <div className="grid min-h-0 flex-1 grid-rows-2 divide-y">
                 <div className="flex min-h-0 min-w-0 flex-col">
-                  <div className="border-b px-5 py-2 text-xs font-medium text-muted-foreground">Input</div>
+                  <div className="border-b px-5 py-2 font-medium text-muted-foreground text-xs">Input</div>
                   <div className="min-h-0 flex-1 overflow-auto">
-                    <pre className="p-5 font-mono text-xs break-all whitespace-pre-wrap">
+                    <pre className="whitespace-pre-wrap break-all p-5 font-mono text-xs">
                       {toolInput(selected.command)}
                     </pre>
                   </div>
                 </div>
                 <div className="flex min-h-0 min-w-0 flex-col">
-                  <div className="border-b px-5 py-2 text-xs font-medium text-muted-foreground">Output</div>
+                  <div className="border-b px-5 py-2 font-medium text-muted-foreground text-xs">Output</div>
                   <div className="min-h-0 flex-1 overflow-auto">
                     <pre
                       className={cn(
-                        "p-5 font-mono text-xs break-all whitespace-pre-wrap",
+                        "whitespace-pre-wrap break-all p-5 font-mono text-xs",
                         selected.is_error && "text-red-600 dark:text-red-400",
                       )}
                     >

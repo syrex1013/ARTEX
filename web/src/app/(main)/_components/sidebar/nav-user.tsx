@@ -14,6 +14,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { SidebarMenu, SidebarMenuButton, SidebarMenuItem, useSidebar } from "@/components/ui/sidebar";
+import { http } from "@/lib/api";
 import { auth } from "@/lib/auth";
 import { getInitials } from "@/lib/utils";
 
@@ -31,7 +32,8 @@ export function NavUser({
   const { isMobile } = useSidebar();
   const [pwOpen, setPwOpen] = React.useState(false);
 
-  function handleLogout() {
+  async function handleLogout() {
+    await http("/auth/logout", { method: "POST" });
     auth.clearToken();
     // Hard navigation: let the browser start a fresh request with the cleared cookie,
     // so middleware reads the empty token correctly and lets /login through

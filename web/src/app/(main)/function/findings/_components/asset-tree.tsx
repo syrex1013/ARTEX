@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { Empty, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
 import type { FindingAssetKind, FindingAssetNode } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -295,20 +296,27 @@ export function AssetTree({
         )}
       >
         <span>All assets</span>
-        <span className="text-xs tabular-nums text-muted-foreground">{findingTotal}</span>
+        <span className="text-muted-foreground text-xs tabular-nums">{findingTotal}</span>
       </button>
 
       <div className="max-h-[24rem] min-h-0 flex-1 overflow-y-auto pr-2 lg:max-h-[calc(100vh-16rem)]">
         <div className="flex flex-col">
           {rows}
-          {rows.length === 0 && <p className="px-2 py-8 text-center text-xs text-muted-foreground">{emptyHint}</p>}
+          {rows.length === 0 && (
+            <Empty className="py-8">
+              <EmptyHeader>
+                <EmptyTitle>{emptyHint}</EmptyTitle>
+              </EmptyHeader>
+            </Empty>
+          )}
         </div>
       </div>
 
       {truncated && (
-        <p className="px-1 text-xs text-muted-foreground">
+        <p className="px-1 text-muted-foreground text-xs">
           Too many assets; the {(droppedKinds ?? []).map((k) => KIND_LABEL[k as FindingAssetKind] ?? k).join(" / ")}
-          levels are hidden (their counts still roll up into the parents). Narrow with the filters or the filter box to see the full hierarchy.
+          levels are hidden (their counts still roll up into the parents). Narrow with the filters or the filter box to
+          see the full hierarchy.
         </p>
       )}
     </div>
